@@ -1,0 +1,14 @@
+# Environment
+.env
+**/venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Audio & output
+output/
+*.mp3
+
+# OS
+Thumbs.db
+.DS_Store
