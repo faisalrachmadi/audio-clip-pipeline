@@ -28,7 +28,7 @@ load_dotenv(BASE_DIR / "1. apify + audio" / ".env")
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
 load_dotenv(BASE_DIR / "2. Analisa json" / ".env")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 YT_DLP = r"C:\yt-dlp_win\yt-dlp.exe"
 FFMPEG = r"C:\ffmpeg-2025-11-12-git-6cdd2cbe32-essentials_build\bin\ffmpeg.exe"
@@ -38,8 +38,8 @@ for path, name in [(YT_DLP, "yt-dlp"), (FFMPEG, "ffmpeg")]:
         sys.exit(f"❌ {name} tidak ditemukan di: {path}")
 
 APIFY_ACTOR = "https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_ID = "deepseek/deepseek-v4-flash"
+DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+MODEL_ID = "deepseek-chat"
 
 MAX_WORKERS = os.cpu_count() or 4
 
@@ -220,8 +220,8 @@ def tahap2(transcript_path, output_dir, jumlah_clip, durasi_min, durasi_max, ski
     analisa_dir = output_dir / "2_analisa"
     analisa_dir.mkdir(parents=True, exist_ok=True)
 
-    if not OPENROUTER_KEY:
-        sys.exit("❌ OPENROUTER_API_KEY tidak ditemukan")
+    if not DEEPSEEK_KEY:
+        sys.exit("❌ DEEPSEEK_API_KEY tidak ditemukan")
 
     with open(transcript_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -338,7 +338,7 @@ Aturan nama file:
 - Maksimal 5 kata, huruf kecil, tanpa spasi/karakter khusus
 - Nilai [durasi_detik-2] = total durasi clip dikurangi 2"""
 
-    log(f"  Mengirim ke OpenRouter ({MODEL_ID})...")
+    log(f"  Mengirim ke DeepSeek ({MODEL_ID})...")
     log(f"  Clip: {jumlah_clip}, Durasi: {durasi_min}-{durasi_max} menit")
 
     payload = {
@@ -351,9 +351,9 @@ Aturan nama file:
     }
 
     resp = requests.post(
-        OPENROUTER_URL,
+        DEEPSEEK_URL,
         headers={
-            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Authorization": f"Bearer {DEEPSEEK_KEY}",
             "HTTP-Referer": "https://localhost",
             "X-Title": "AutoClip Pipeline",
             "Content-Type": "application/json",
@@ -363,7 +363,7 @@ Aturan nama file:
     )
 
     if not resp.ok:
-        sys.exit(f"❌ OpenRouter gagal (HTTP {resp.status_code}): {resp.text[:300]}")
+        sys.exit(f"❌ DeepSeek gagal (HTTP {resp.status_code}): {resp.text[:300]}")
 
     ai_response = resp.json()["choices"][0]["message"]["content"]
     log(f"  ✅ Response AI ({len(ai_response)} chars)")
