@@ -39,7 +39,7 @@ for path, name in [(YT_DLP, "yt-dlp"), (FFMPEG, "ffmpeg")]:
 
 APIFY_ACTOR = "https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items"
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-MODEL_ID = "deepseek-chat"
+MODEL_ID = "deepseek-v4-flash"
 
 MAX_WORKERS = os.cpu_count() or 4
 
@@ -622,8 +622,8 @@ def main():
             for f in clip_files:
                 # Ekstrak judul clip dari nama file asli: "01_metode-menghafal-al-quran"
                 stem = f.stem
-                # Buang nomor di depan (01_, 02_, dll)
-                clip_raw = re.sub(r'^\d+_', '', stem)
+                # Buang nomor di depan (01_, 01-, 01 , 02_, dll)
+                clip_raw = re.sub(r'^\d+[\s_\-]+', '', stem)
                 # Ubah kebab-case → Title Case
                 clip_title = " ".join(w.capitalize() for w in clip_raw.replace("-", " ").replace("_", " ").split())
                 
