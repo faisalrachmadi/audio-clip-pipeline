@@ -28,7 +28,8 @@ load_dotenv(BASE_DIR / "1. apify + audio" / ".env")
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
 load_dotenv(BASE_DIR / "2. Analisa json" / ".env")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
+# API key: prioritaskan OpenCode Go (OPENCODE_GO_API_KEY), fallback DeepSeek direct (DEEPSEEK_API_KEY)
+DEEPSEEK_KEY = os.getenv("OPENCODE_GO_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
 
 YT_DLP = r"C:\yt-dlp_win\yt-dlp.exe"
 FFMPEG = r"C:\ffmpeg-2025-11-12-git-6cdd2cbe32-essentials_build\bin\ffmpeg.exe"
@@ -38,7 +39,7 @@ for path, name in [(YT_DLP, "yt-dlp"), (FFMPEG, "ffmpeg")]:
         sys.exit(f"❌ {name} tidak ditemukan di: {path}")
 
 APIFY_ACTOR = "https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items"
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_URL = os.getenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1") + "/chat/completions"
 MODEL_ID = "deepseek-v4-flash"
 
 MAX_WORKERS = os.cpu_count() or 4
@@ -356,14 +357,15 @@ Aturan nama file:
             "Authorization": f"Bearer {DEEPSEEK_KEY}",
             "HTTP-Referer": "https://localhost",
             "X-Title": "AutoClip Pipeline",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
             "Content-Type": "application/json",
         },
         json=payload,
-        timeout=300,
+        timeout=600,
     )
 
     if not resp.ok:
-        sys.exit(f"❌ DeepSeek gagal (HTTP {resp.status_code}): {resp.text[:300]}")
+        sys.exit(f"❌ AI gagal (HTTP {resp.status_code}): {resp.text[:300]}")
 
     ai_response = resp.json()["choices"][0]["message"]["content"]
     log(f"  ✅ Response AI ({len(ai_response)} chars)")
