@@ -84,14 +84,14 @@ python pipeline.py <URL> --min 4 --max 6 --clips 5
 
 Untuk **1 URL**, jalankan langsung via terminal command (sub-agent tidak diperlukan — hanya tambah overhead). Cukup cd ke working directory + activate venv + run pipeline.py.
 
-### Multi Video / Batch → Sub-Agent (delegate_task)
+### Multi Video / Batch → Sequential untuk API, Paralel untuk FFmpeg
 
-Untuk **2+ URL**, gunakan **delegate_task** (sub-agen) agar tiap video jalan paralel:
+Untuk **2+ URL**, jalankan **sequential** untuk hindari API rate limit (HTTP 500/timeout):
 
-- Max **3 sub-agen paralel** (sesuai batas concurrent user)
-- Kirim beritahu dulu ke user: "Mulai proses X video..."
-- Setelah semua selesai, kumpulkan hasil dan laporkan ke user
-- Masing-masing sub-agen jalankan terminal command pipeline.py untuk 1 video
+**JANGAN** jalankan 4+ pipeline barengan — OpenCode Go API akan overwhelmed.
+**IDEAL:** Max 2 paralel untuk video pendek (<30 menit), 1 per satu untuk video panjang (>30 menit / transcript >30K chars).
+
+Setelah tahap 2 (AI) selesai, tahap 3 (FFmpeg) tetap paralel per clip — ini aman karena lokal CPU.
 
 ## Tooling
 

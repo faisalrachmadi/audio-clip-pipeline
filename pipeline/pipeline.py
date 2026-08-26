@@ -350,6 +350,7 @@ Baca transcript dengan saksama. Tugasmu:
 1. **WAJIB hindari:**
    - **BREAK IKLAN** -- segmen di mana host bilang "kita akan break", "setelah break", "kembali setelah ini", musik jeda iklan, dll.
    - **IKLAN RADIO** -- segmen promosi produk/sponsor, call to action iklan, tagline sponsor.
+    - **ADZAN** -- segmen yang mengandung lafadz adzan atau jeda adzan.
    - **OPENING** -- salam pembuka, perkenalan host/narasumber, jingle pembuka.
    - **CLOSING** -- salam penutup, pengumuman acara mendatang, kredit penutup.
 2. **Durasi WAJIB antara {durasi_min}-{durasi_max} menit.** JANGAN PERNAH melebihi {durasi_max} menit. Clip terlalu pendek (<45 detik) juga tidak boleh.
