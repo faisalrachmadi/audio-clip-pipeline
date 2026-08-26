@@ -407,7 +407,7 @@ Aturan nama file:
             "Content-Type": "application/json",
         },
         json=payload,
-        timeout=300,
+        timeout=1200,
     )
 
     if not resp.ok:
