@@ -31,6 +31,7 @@ DEEPSEEK_KEY = os.getenv("OPENCODE_GO_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
 
 YT_DLP = shutil.which("yt-dlp")
 FFMPEG = shutil.which("ffmpeg")
+FFPROBE = shutil.which("ffprobe")
 
 if not YT_DLP:
     sys.exit("❌ yt-dlp tidak ditemukan di PATH")
@@ -114,19 +115,22 @@ def run_subprocess(cmd, desc="proses", timeout=600, capture=True):
     return result.stdout if capture else None
 
 
-def get_audio_duration(audio_path):
-    """Dapatkan durasi audio dalam detik via ffprobe."""
+def _probe_duration_sec(path):
+    """Durasi (detik) via ffprobe — baca header saja (~0.03s), bukan decode penuh (~3s)."""
     try:
         r = subprocess.run(
-            [FFMPEG, "-i", str(audio_path), "-f", "null", "-"],
+            [FFPROBE or "ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
             capture_output=True, text=True, errors="replace", timeout=30
         )
-        m = re.search(r"Duration: (\d+):(\d+):(\d+)", r.stderr)
-        if m:
-            return int(m.group(1))*3600 + int(m.group(2))*60 + int(m.group(3))
+        return float(r.stdout.strip())
     except Exception:
-        pass
-    return 0
+        return 0.0
+
+
+def get_audio_duration(audio_path):
+    """Dapatkan durasi audio dalam detik via ffprobe (cepat: baca header)."""
+    return int(_probe_duration_sec(audio_path))
 
 
 def compute_clip_count(duration_sec):
@@ -431,9 +435,6 @@ Aturan nama file:
             return txt[txt.find("@echo off"):].strip()
         return txt
 
-    def _durs(txt):
-        return [float(x) for x in re.findall(r"-t\s+(\d+(?:\.\d+)?)", txt)]
-
     bat_content = _extract_bat(ai_response)
 
     # ── Validasi durasi + overlap (deterministik). Kalau melanggar, minta AI perbaiki 1x ──
@@ -516,18 +517,8 @@ Aturan nama file:
 # ─── OPTIMASI A: Parse .bat → daftar perintah ──────────────────
 def parse_ffmpeg_commands(bat_path, audio_path, hasil_dir):
     """Parse file .bat jadi daftar perintah ffmpeg siap jalan, validasi timestamp."""
-    # Dapatkan durasi audio (dalam detik) untuk validasi
-    max_seconds = 0
-    try:
-        r = subprocess.run(
-            [FFMPEG, "-i", str(audio_path), "-f", "null", "-"],
-            capture_output=True, text=True, errors="replace", timeout=30
-        )
-        m = re.search(r"Duration: (\d+):(\d+):(\d+)", r.stderr)
-        if m:
-            max_seconds = int(m.group(1))*3600 + int(m.group(2))*60 + int(m.group(3))
-    except Exception:
-        pass
+    # Dapatkan durasi audio (dalam detik) untuk validasi — ffprobe, baca header saja
+    max_seconds = int(_probe_duration_sec(audio_path))
     with open(bat_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
@@ -570,20 +561,11 @@ def parse_ffmpeg_commands(bat_path, audio_path, hasil_dir):
 
 
 def get_file_duration(filepath):
-    """Dapatkan durasi real file audio dalam format MM:SS via ffprobe."""
-    try:
-        r = subprocess.run(
-            [FFMPEG, "-i", str(filepath), "-f", "null", "-"],
-            capture_output=True, text=True, errors="replace", timeout=15
-        )
-        m = re.search(r"Duration: (\d+):(\d+):(\d+)", r.stderr)
-        if m:
-            h, m2, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
-            total_menit = h * 60 + m2
-            return f"{total_menit}:{int(s):02d}"
-    except Exception:
-        pass
-    return "?"
+    """Durasi file audio (MM:SS) via ffprobe — baca header saja, bukan decode penuh."""
+    total = _probe_duration_sec(filepath)
+    if not total:
+        return "?"
+    return f"{int(total // 60)}:{int(total % 60):02d}"
 
 
 def run_single_ffmpeg(cmd, idx, total):
@@ -785,10 +767,11 @@ def main():
                 r'(?<![\w.])(?:M\.?\s*Sc\.?|M\.?\s*A\.?|M\.?\s*Ag\.?|M\.?\s*Pd\.?|M\.?\s*Hum\.?|M\.?\s*E\.?|Lc\.?|Ph\.?\s*D\.?|S\.?\s*Ag\.?|S\.?\s*Pd\.?|S\.?\s*Kom\.?|S\.?\s*T\.?|S\.?\s*S\.?)(?=\s|$|[-–—|,;])',
                 '', meta_album, flags=re.IGNORECASE
             )
-            # Rapikan separator ganda jadi satu, lalu spasi berlebih
+            # Rapikan separator ganda jadi satu, lalu spasi berlebih + buang separator menggantung
             meta_album = re.sub(r'\s*[|–—]\s*[|–—]\s*', ' | ', meta_album)
-            meta_album = re.sub(r'\s{2,}', ' ', meta_album)
-            meta_album = meta_album.strip(' |–—,;')
+            meta_album = re.sub(r'^\s*[-–—|,;]+\s*', '', meta_album)
+            meta_album = re.sub(r'\s*[-–—|,;]+\s*$', '', meta_album)
+            meta_album = re.sub(r'\s{2,}', ' ', meta_album).strip()
 
             for f in clip_files:
                 # Ekstrak judul clip dari nama file asli: "01_metode-menghafal-al-quran"

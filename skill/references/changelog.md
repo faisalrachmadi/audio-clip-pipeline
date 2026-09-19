@@ -1,6 +1,9 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.27.0 - OPTIMASI: probe durasi via ffprobe (baca header, ~0.03s) ganti ffmpeg -f null (decode penuh, ~3s)
+#          di 3 tempat (get_audio_duration, parse_ffmpeg_commands, get_file_duration); tag album buang separator
+#          menggantung; hapus dead code (_durs). Diukur: audio 78MB 3.24s -> 0.03s; clip 8MB 0.37s -> 0.03s.
 # 1.26.0 - REKONSILIASI dari branch main: SYSTEM_PROMPT wajib KONTEKS UTUH (SUB-TOPIK kalau > max, TES AKHIR per clip
 #          prioritas keutuhan konteks > jumlah clip > durasi), --clips default 5 (fixed, bukan auto),
 #          bersihkan_gelar() hapus gelar akademik (guard pemisah; fix "KH" jangan makan "Khalid"), pitfall video DUO.

@@ -1,8 +1,10 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.26.0
+version: 1.27.0
 # Changelog lengkap: references/changelog.md
+# 1.27.0 - OPTIMASI: probe durasi via ffprobe (baca header ~0.03s) ganti ffmpeg decode penuh (~3s) di 3 tempat;
+#          tag album buang separator menggantung; hapus dead code (_durs).
 # 1.26.0 - REKONSILIASI dari branch main: prompt KONTEKS UTUH (SUB-TOPIK + TES AKHIR + prioritas keutuhan),
 #          --clips default 5 (fixed), bersihkan_gelar() hapus gelar akademik, pitfall video DUO. Mesin tetap versi server-linux.
 # 1.25.0 - Tambah "Checklist Progres (per Tahap)" — panduan pelaporan progres rinci per tahap + verifikasi.
