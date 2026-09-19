@@ -349,9 +349,9 @@ Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus di
 
 ## ATURAN SELEKSI CLIP
 1. **CARI TRANGSISI TOPIK DULU.** Baca teks transcript, identifikasi dimana pembahasan berganti (misal: pembicara selesai bahas topik A lalu bilang "selanjutnya..." / "berikutnya..." / "adapun..." / jeda panjang). Clip boundary = batas transisi topik.
-2. **DURASI WAJIB antara {durasi_min}-{durasi_max} menit.** JANGAN PERNAH melebihi {durasi_max} menit. Variasi durasi bagus, tapi tetap dalam batas. Kalau satu topik lebih panjang dari {durasi_max} menit, cari SUB-TOPIK utuh di dalamnya atau pilih topik lain yang muat — jangan potong di tengah alur.
-3. **HINDARI clip di bawah 3 menit** — terlalu pendek untuk konten mandiri. Gabungkan dengan topik kecil lain yang berdekatan, atau skip.
-4. **JANGAN potong per menit bulet** (jangan `00:05:00`). Clip boundary HARUS di akhir satu kalimat/paragraf utuh dari transcript.
+2. **DURASI: {durasi_min}-{durasi_max} menit adalah PAGAR, bukan target.** JANGAN PERNAH melebihi {durasi_max} menit. Durasi tiap clip = JARAK dari awal topik sampai topik itu tuntas — jadi **setiap clip hampir pasti berbeda**. Kalau satu topik lebih panjang dari {durasi_max} menit, cari SUB-TOPIK utuh di dalamnya atau pilih topik lain yang muat — jangan potong di tengah alur.
+3. **DURASI WAJIB BERAGAM.** Dilarang membuat semua clip berdurasi sama. Dilarang memakai angka bulat (240/300/360 detik atau 4:00/5:00/6:00). Pakai nilai detik desimal hasil boundary transcript (mis. 294.7, 331.2). Kalau dua clip kebetulan sama panjang, itu kecurigaan bahwa boundary belum mengikuti topik.
+4. **HINDARI clip di bawah 3 menit** — terlalu pendek untuk konten mandiri. Gabungkan dengan topik kecil lain yang berdekatan, atau skip.
 5. **Target {jumlah_clip} clip**, tapi utamakan MUTU & KEUTUHAN materi. Kalau transcript tidak punya cukup topik utuh yang bermutu, **LEBIH BAIK menghasilkan KURANG dari {jumlah_clip}** — jangan mengejar jumlah dengan memotong konteks.
 6. **HINDARI bagian OPENING.** Jangan pilih clip yang mengandung salam pembuka (Assalamu'alaikum), basmalah (Bismillahirrahmanirrahim), puji-pujian (Alhamdulillah, hamdalah), atau perkenalan pembicara/pembawa acara. Clip harus dari ISI KAJIAN inti.
 7. **HINDARI bagian ADZAN.** Jika transcript mengandung lafadz adzan atau jeda adzan di tengah video, jangan pilih segmen itu sebagai clip.
@@ -465,17 +465,27 @@ Aturan nama file:
         for (s1, d1), (s2, _) in zip(srt, srt[1:]):
             if s2 < s1 + d1:
                 ov.append((round(s1), round(s1 + d1), round(s2)))
-        return dur_bad, ov
+        # Durasi seragam / angka bulat -> tanda AI memaksa durasi, bukan mengikuti topik
+        uni = []
+        vals = [round(d, 1) for _, d in spans]
+        if len(vals) >= 3:
+            best = max(set(vals), key=vals.count)
+            n = vals.count(best)
+            if n >= max(3, len(vals) - 1):
+                uni = [best, n]
+        return dur_bad, ov, uni
 
     for attempt in (1, 2):
-        dur_bad, ov = _violations(bat_content)
-        if (not dur_bad and not ov) or attempt == 2:
+        dur_bad, ov, uni = _violations(bat_content)
+        if (not dur_bad and not ov and not uni) or attempt == 2:
             break
         issues = []
         if dur_bad:
             issues.append(f"durasi di luar {durasi_min}-{durasi_max} mnt: {dur_bad}s")
         if ov:
             issues.append(f"clip TUMPANG TINDIH (prev_start,prev_end,next_start): {ov}")
+        if uni:
+            issues.append(f"durasi SERAGAM: {uni[1]} clip sama-sama {uni[0]}s (harus mengikuti panjang topik)")
         log(f"  ⚠️  {'; '.join(issues)} → minta AI perbaiki")
         fix_msg = (
             "ATURAN DILANGGAR — " + "; ".join(issues) + ". "
@@ -483,6 +493,16 @@ Aturan nama file:
             "(2) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu; "
             "(3) boundary di akhir kalimat utuh, jangan potong di tengah pembahasan. "
             "Jangan bikin semua clip berdurasi sama; sesuaikan dengan panjang topik."
+        )
+        # ── Anti-seragam: durasi harus berasal dari boundary topik, bukan angka aman di tengah rentang ──
+        fix_msg = (
+            "ATURAN DILANGGAR — " + "; ".join(issues) + ". "
+            "Perbaiki blok .bat SAJA, tapi HITUNG ULANG boundary dari transcript.\n"
+            f"(1) Durasi = jarak awal-topik sampai topik tuntas. Rentang {min_sec}-{max_sec} detik itu PAGAR, bukan target.\n"
+            "(2) DURASI WAJIB BERAGAM antar clip. DILARANG semua clip berdurasi sama. DILARANG angka bulat "
+            "(240/300/360 atau 4:00/5:00/6:00) — pakai nilai desimal dari boundary kalimat transcript (mis. 287.4, 331.9).\n"
+            "(3) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu.\n"
+            "(4) Boundary di akhir kalimat utuh, jangan potong di tengah pembahasan."
         )
         try:
             fix_payload = {
@@ -508,9 +528,11 @@ Aturan nama file:
             log(f"  ⚠️  Re-ask gagal: {str(e)[:120]}")
             break
 
-    dur_bad, ov = _violations(bat_content)
+    dur_bad, ov, uni = _violations(bat_content)
     if dur_bad or ov:
         log(f"  ⚠️  Masih ada pelanggaran (durasi={dur_bad}, overlap={ov}) — dibersihkan di Tahap 3")
+    if uni:
+        log(f"  ⚠️  Durasi seragam tersisa ({uni[1]} clip = {uni[0]}s) — topik mungkin belum dipisah natural")
 
     log_path = analisa_dir / "potong_log_alasan.md"
     with open(log_path, "w", encoding="utf-8") as f:

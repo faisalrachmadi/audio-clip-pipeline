@@ -1,6 +1,10 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.29.0 - FIX "durasi seragam 5:00": akar masalah = pesan re-ask menyebut rentang dalam DETIK sehingga AI
+#          mengunci ke 300s (batas aman). Perbaikan: (a) prompt tegas "durasi = jarak topik, dilarang seragam &
+#          angka bulat", (b) pesan re-ask tulis ulang boundary, bukan sekadar angka, (c) validasi baru deteksi
+#          durasi seragam (>=3 clip sama) -> re-ask. Bukti: sebelum 300/300/300/300 -> sesudah 281/308/280/332/287.
 # 1.28.0 - FIX deteksi nama ustadz untuk judul dengan tulisan Arab (doa/honorifik seperti حفظه الله), emoji,
 #          atau tag [LIVE]: kelas regex [A-Za-z] tidak match huruf Arab sehingga deteksi GAGAL total (nama file
 #          tanpa suffix ustadz, artist ikut judul mentah). Fix: _normalisasi_judul() buang tulisan Arab/emoji/[LIVE]

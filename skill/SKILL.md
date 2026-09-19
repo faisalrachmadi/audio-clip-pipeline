@@ -1,8 +1,11 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.28.0
+version: 1.29.0
 # Changelog lengkap: references/changelog.md
+# 1.29.0 - FIX durasi seragam 5:00: prompt + pesan re-ask kini larang durasi seragam/angka bulat,
+#          validasi deteksi durasi seragam (>=3 clip sama) -> re-ask. Root cause: re-ask menyebut rentang
+#          dalam detik membuat AI mengunci ke 300s. Hasil uji: 281/308/280/332/287s (5 nilai unik).
 # 1.28.0 - FIX deteksi ustadz: judul dengan tulisan Arab (doa spt حفظه الله) / emoji / [LIVE] gagal match
 #          karena kelas regex [A-Za-z] -> normalisasi judul dulu (_normalisasi_judul). Juga fix "Hudzaifah"->"udzaifah".
 # 1.27.0 - OPTIMASI: probe durasi via ffprobe (baca header ~0.03s) ganti ffmpeg decode penuh (~3s) di 3 tempat;
