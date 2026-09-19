@@ -110,6 +110,14 @@ AI di-prompt untuk:
 7. No overlap antar clip
 8. Jumlah clip bisa kurang dari yang diminta jika konten tidak mendukung (kualitas > kuantitas)
 
+## Catatan Penting (OpenCode Go)
+
+1. **Header `x-opencode-session` WAJIB.** Sejak 2026-09-05 OpenCode Go menolak request tanpa header ini (HTTP 400 `MissingSessionID`). Pipeline mengirim `str(uuid.uuid4())` per run. Kalau muncul error itu, pastikan header-nya terkirim.
+2. **Request API harus SEQUENTIAL.** Jangan jalankan beberapa video bersamaan — beberapa request serentak bikin OpenCode Go balas HTTP 500 `Internal server error`. Untuk batch, pakai `run_sequential.py` (menjalankan URL satu per satu). Yang boleh paralel hanya proses potong FFmpeg di dalam satu video.
+3. **HTTP 500 bisa transient.** Kalau kena HTTP 500, retry biasanya berhasil. Transcript sudah di-cache, jadi retry langsung masuk Tahap 2 tanpa download ulang.
+4. **Transcript besar:** 40–60K chars aman dengan timeout 1200s. Di atas ~70K chars rawan gagal — pakai `--clips 7` supaya prompt lebih ringan.
+5. **Video tanpa auto-caption YouTube akan gagal** di Tahap 1 (`Transcript kosong`). Itu bukan bug pipeline — YouTube-nya memang belum punya subtitle.
+
 ## Lisensi
 
 MIT — bebas pakai, modifikasi, dan share.

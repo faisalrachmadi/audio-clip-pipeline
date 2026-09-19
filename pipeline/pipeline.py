@@ -8,7 +8,7 @@ Optimasi:
   C = Cache transcript (skip Apify kalau sudah ada)
 """
 
-import json, os, re, sys, subprocess, shlex, time
+import json, os, re, sys, subprocess, shlex, time, uuid
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -357,7 +357,7 @@ Aturan nama file:
             "Authorization": f"Bearer {DEEPSEEK_KEY}",
             "HTTP-Referer": "https://localhost",
             "X-Title": "AutoClip Pipeline",
-            "x-opencode-session": "autoclip-pipeline-v1",
+            "x-opencode-session": str(uuid.uuid4()),
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
             "Content-Type": "application/json",
         },
