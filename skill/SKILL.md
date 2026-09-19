@@ -1,59 +1,15 @@
 ---
 name: insert-radio
-description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (mimo-v2.5), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.22.0
+description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
+version: 1.25.0
+# Changelog lengkap: references/changelog.md
+# 1.25.0 - Tambah "Checklist Progres (per Tahap)" — panduan pelaporan progres rinci per tahap + verifikasi.
+# 1.24.0 - Model Tahap 2 kembali ke OpenCode Go `deepseek-v4.1-flash` (saldo pulih 2026-09-19). Ganti provider: `AI_PROVIDER=opencode|openrouter`.
+# 1.23.0 - SKILL.md dirampingkan; detail dipindah ke references/ (pitfalls.md, prompt-rules.md, changelog.md, flat-output.md)
 # CHANGES:
 # 1.22.0 - GUARD OVERLAP: Tahap 2 deteksi clip tumpang tindih -> minta AI perbaiki; Tahap 3 urutkan & buang clip overlap (deterministik).
 #       - Catatan kualitas: AI cenderung mengunci durasi ke 300s (5:00) & memaksa batas -> rawan potong konteks/overlap.
 # 1.21.0 - PROVIDER SWITCH via env AI_PROVIDER (openrouter | opencode). Default: openrouter (OpenCode Go saldo habis).
-#          OpenRouter: base https://openrouter.ai/api/v1, model deepseek/deepseek-v4.1-flash, kunci OPENROUTER_API_KEY (ada di config OpenClaw).
-#          reasoning_effort=none WAJIB juga utk OpenRouter: default 89s vs none 3s (probe transcript 59K char, video 56 mnt).
-#          Hasil run nyata: Tahap 2 ~30s (default) / 8 clip 4-5 mnt, semua patuh rentang.
-# 1.20.1 - Added pitfall: OpenCode Go CreditsError (HTTP 401 saldo habis) — stop, lapor user, simpan cache Tahap 1
-# 1.20.0 - FIX KUALITAS: fetch_transcript kirim targetLanguage='id' (default, override env APIFY_LANG).
-#          Tanpa ini Apify balas caption auto-translate (Inggris) -> AI salah pilih topik & durasi.
-#       - GUARD DURASI: Tahap 2 validasi durasi clip; kalau di luar min-max, minta AI perbaiki 1x,
-#          lalu Tahap 3 skip deterministik clip yang masih menyimpang (jangan hasilkan clip ngawur)
-# 1.19.0 - Port ke Linux (server OpenClaw): path yt-dlp/ffmpeg dari PATH, .env tunggal di root,
-#          yt-dlp standalone terbaru (apt dihapus) + --js-runtimes node, output folder dd-mm-yyyy
-#       - KECEPATAN: payload AI kirim reasoning_effort=none -> Tahap 2 660s+ (atau timeout 900s)
-#          turun jadi ~26-29s untuk transcript 95K char (~23x lebih cepat)
-#       - Timeout AI 900s -> 300s + retry otomatis 2x (pengganti retry manual)
-# 1.18.0 - Switched AI model: DeepSeek V4 Flash -> OpenCode Go mimo-v2.5
-#       - Added --audio flag for audio-only mode (MP3 output)
-#       - Output folder changed to D:\Insert Automation\Insert maker\automate insert\output
-# 1.17.0 - Updated OpenRouter refs -> DeepSeek Direct (api.deepseek.com, deepseek-v4-flash)
-#       - deepseek-chat deprecated (HTTP 400), only deepseek-v4-pro/flash accepted
-# 1.16.0 - Added terminal-corrupted workaround (execute_code + subprocess.Popen)
-#       - Added yt-dlp .part file lock recovery (kill yt-dlp + delete .part)
-#       - Added user preference: "Ustadz" not "Ust"
-#       - Added ustadz-detection-failures.md Kasus 7 (Ust → Ustadz) & Kasus 8
-# 1.14.0 - Added ustadz-detection-failures.md Kasus 6: prefix "Ustadz" diikuti teks deskriptif (bukan nama orang)
-#       - Updated pitfall "Deteksi ustadz bisa gagal" untuk mencakup varian prefix match palsu
-# 1.13.0 - Default berubah ke Talkshow MP4 mode
-#       - Added pitfall: yt-dlp sometimes saves audio as .m4a instead of .mp3
-# 1.11.0 - Corrected pty=true MSYS workaround (tidak selalu bisa reset corrupted session)
-#       - Added medium-video timing reference (~45 min video) to total runtime pitfall
-# 1.10.0 - Added 3 pitfalls: YouTube 429 rate limit, --cookies-from-browser fails when browser running, ended live streams need cookies
-#       - New reference: yt-dlp-cookies-auth.md (troubleshooting auth failures, oEmbed fallback)
-# 1.9.0 - Updated script path to include `automate insert-video` variant
-#       - Added convert_subs.py, script.pyw, and Analisa json/ to Tooling section
-#       - New reference: transcript-format.md (Apify JSON format, YouTube JSON3 conversion)
-#       - Updated "Audio only" pitfall to mention video extension path
-# 1.8.0 - Added pitfall: total runtime for very long videos (90-180min)
-#       - Covers tool-call iteration limit impact when running via Hermes agent
-# 1.7.0 - Added 3 pitfalls for pipeline monitoring:
-#       - yt-dlp \r progress invisible in logs
-#       - seg_count as video-length signal
-#       - progress monitoring via output directories
-# 1.6.0 - Extended sub-agent verification pitfall to cover direct runs
-#       - Added OpenRouter API hang/timeout pitfall with retry pattern
-# 1.4.0 - Relaxed "WAJIB via sub-agent" → single-video can run directly
-#       - Added Windows MSYS terminal foreground pitfall + background workaround
-#       - Cara Run section now recommends background mode
-# 1.3.0 - Added GitHub repo link + github-info.md reference
-#       - Added pitfalls: flat output danger, ustadz detection failure, sub-agent verify, &pp URL param
-# 1.2.0 - Updated Prompt Rules to match actual pipeline.py (initial opening/adzan/closing rules)
 ---
 
 # Insert Radio
@@ -154,6 +110,55 @@ Setelah tahap 2 (AI) selesai, tahap 3 (FFmpeg) tetap paralel per clip — ini am
 2. Ganti input → audio_full.mp3, output → 3_hasil_potong/
 3. Eksekusi parallel via ThreadPoolExecutor (MAX_WORKERS = CPU count)
 
+## Checklist Progres (per Tahap)
+
+Gunakan ini untuk melaporkan progres (progress card + pesan singkat) tiap run. Tandai item saat selesai; jangan lompat tahap. Baca detail di `references/pitfalls.md` bila ada item yang gagal.
+
+### T0 — Preflight
+- [ ] URL dibersihkan (buang param `&pp=`/tracking) & valid
+- [ ] Ambil judul video (yt-dlp)
+- [ ] Cek takarir ada (`yt-dlp --list-subs`) → kalau kosong: **STOP + lapor**
+
+### T1 — Transcript & Audio
+- [ ] Cek cache `1_apify/transcript.json` (skip Apify kalau valid)
+- [ ] Fetch transcript Apify (`targetLanguage=id`)
+- [ ] Validasi segmen > 0 (kalau 0 → STOP)
+- [ ] Hitung jumlah clip dari durasi (efektif −10 mnt, ÷10 utk kajian 4-6 mnt)
+- [ ] Unduh audio (`yt-dlp -x ... --js-runtimes node`)
+- [ ] Cek `audio_full.mp3` ada & ukuran wajar
+
+### T2 — Analisis AI
+- [ ] Extract transcript → `[start - dur] text`
+- [ ] Filter `--skip-start` (bila diisi)
+- [ ] Kirim ke provider aktif (`reasoning_effort=none`)
+- [ ] Validasi durasi (4–6 mnt) **+ overlap** → re-ask AI 1× bila melanggar
+- [ ] Simpan `2_analisa/potong_log_alasan.md`
+- [ ] Simpan `2_analisa/potong.bat` (blok ffmpeg)
+
+### T3 — Potong Audio
+- [ ] Parse `.bat` → daftar perintah ffmpeg
+- [ ] Guard: sort per waktu + buang clip di luar durasi & yang overlap
+- [ ] Eksekusi paralel (ThreadPoolExecutor)
+- [ ] Verifikasi semua file ada & playable (`ffprobe`)
+
+### Post-Processing
+- [ ] Deteksi nama ustadz dari judul
+- [ ] Rename Title Case → `Judul - Ustadz Nama.mp3`
+- [ ] Tulis metadata ID3 (title/artist/album/date)
+- [ ] Hapus `audio_full.mp3` (hemat space)
+
+### Publish (skill `publish-kajian-audio`, cron 5 mnt)
+- [ ] Mirror `/srv/nextcloud-kajian/<folder>/` (MP3 + `cover.jpg`)
+- [ ] Cover per ustadz (`assign_covers.py`)
+- [ ] Halaman web `/srv/dakwah/index.html`
+- [ ] Nextcloud `occ files:scan`
+- [ ] Navidrome `scan`
+
+### Verifikasi Akhir
+- [ ] `ls 3_hasil_potong/` → file benar-benar ada (jangan percaya self-report)
+- [ ] Cek ghost Navidrome (`missing=0`)
+- [ ] Laporkan: jumlah clip, durasi tiap clip, path output, waktu per tahap
+
 ## Output Structure
 
 ```output/dd-mm-yyyy_judul/
@@ -192,35 +197,6 @@ Setelah clip terpotong, pipeline otomatis:
 
 > **Catatan:** metadata tergantung output format. MP4 pakai `-metadata` ffmpeg, MP3 pakai ID3 (`-write_id3v1 1 -id3v2_version 3`). Pipeline sekarang default MP4.
 ```
-
-## Post-Run: Copy ke Flat Output
-
-User sering minta semua clip dipindah ke `output/` (flat) setelah pipeline selesai, tanpa subfolder per-video. Lakukan ini setelah tiap batch selesai:
-
-```bash
-# Copy semua clip dari folder batch tertentu ke output/
-for dir in "D:/Insert Automation/Insert maker/automate insert/output/YYYY-MM-DD"*; do
-  sub="$dir/3_hasil_potong"
-  if [ -d "$sub" ]; then
-    cp -n "$sub"/*.mp3 "D:/Insert Automation/Insert maker/automate insert/output/"
-  fi
-done
-```
-
-Atau via Python (saat terminal broken):
-```python
-import os, shutil, glob
-base = r"D:\Insert Automation\Insert maker\automate insert\output"
-for folder in os.listdir(base):
-    hasil = os.path.join(base, folder, "3_hasil_potong")
-    if os.path.isdir(hasil):
-        for f in glob.glob(os.path.join(hasil, "*.mp3")):
-            dest = os.path.join(base, os.path.basename(f))
-            if not os.path.exists(dest):
-                shutil.copy2(f, dest)
-```
-
-Jangan pindahkan/move — gunakan **copy** (`cp -n` / `shutil.copy2`) agar struktur folder per-video tetap utuh sebagai backup.
 
 ## ⚠️ Aturan Delivery
 **JANGAN kirim file audio (.mp3) ke user.** Cukup laporkan hasil pipeline: jumlah clip, durasi, dan path output-nya. Audio hanya untuk disimpan lokal, bukan untuk dikirim ke Telegram.
@@ -282,150 +258,29 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
 
 ## Referensi Internal
 
-- `references/trim-to-duration.md` — Langkah detail trim video ke N menit pertama
-- `references/pipeline-modifications.md` — Riwayat modifikasi pipeline.py (model, rename, metadata, dll)
-- `references/github-info.md` — Info repo GitHub untuk sharing
-- `references/ustadz-detection-failures.md` — Kasus deteksi nama ustadz gagal + cara fix manual
-- `references/yt-dlp-cookies-auth.md` — Troubleshooting YouTube 429 rate limit, cookies export, oEmbed fallback untuk judul
-- `references/transcript-format.md` — Format JSON transcript Apify, YouTube JSON3, convert_subs.py utility
-- `references/talkshow-video-variant.md` — Perubahan MP3 → MP4, AI prompt talkshow, cara revert ke MP3
+Detail besar ada di `references/` (baca hanya yang perlu, jangan semua):
 
-## Pitfalls
+- `references/pitfalls.md` — daftar LENGKAP pitfalls + fix (baca ini saat ada error)
+- `references/prompt-rules.md` — aturan prompt AI (K1-K10 kajian, T1-T8 talkshow)
+- `references/changelog.md` — riwayat versi lengkap
+- `references/flat-output.md` — copy clip ke folder flat (legacy)
+- `references/trim-to-duration.md` — trim ke N menit pertama
+- `references/pipeline-modifications.md` — riwayat modifikasi pipeline.py
+- `references/github-info.md` — info repo GitHub
+- `references/ustadz-detection-failures.md` — kasus deteksi ustadz gagal
+- `references/yt-dlp-cookies-auth.md` — troubleshooting 429/cookies (auth)
+- `references/transcript-format.md` — format JSON transcript Apify
+- `references/talkshow-video-variant.md` — perubahan MP3 -> MP4
 
-- **yt-dlp progress tidak terlihat di log background process:** yt-dlp menampilkan progress download dengan `\r` (carriage return), bukan `\n` (newline). Akibatnya log background process di `process(action='log')` hanya menunjukkan baris yang sama — kelihatan stuck padahal download berjalan normal. **Jangan判断 stuck dari log saja.** Cara monitor yang akurat: jalankan `ls` terpisah (via background) untuk lihat ukuran file di `1_apify/` — kalau `audio_full.mp3` atau `audio_full.webm.part` membesar, download masih jalan.
-- **Transcript seg_count sebagai sinyal durasi video:** Transcript dengan ribuan segmen (misal 3160) menandakan video LIVE panjang (~1-2 jam+). Ini berarti download audio via yt-dlp akan makan waktu beberapa menit. **Manage ekspektasi:** kabari user kalau video panjang, download audio perlu waktu. Jangan panik kalau output tidak berubah selama 2-5 menit.
-- **Monitor progress pipeline via direktori:** Cara paling handal cek progres tanpa lihat log:
-  - **Tahap 1** (Download): `ls 1_apify/` — cek ukuran `audio_full.mp3` atau `.part`
-  - **Tahap 2** (AI Analysis): cek apakah `2_analisa/` sudah terbuat (ada `potong.bat`?)
-  - **Tahap 3** (FFmpeg potong): cek apakah `3_hasil_potong/` sudah terbuat dan ada file `.mp3`
-- **Windows MSYS terminal foreground gagal dengan error quote parsing:** Semua foreground command (`terminal()` tanpa `background=true`) gagal dengan `/bin/bash: -c: line 1: unexpected EOF while looking for matching '"'` — bahkan `echo test`. Penyebab: corrupted bash session state. **Fix:** Gunakan `terminal(background=true, notify_on_complete=true)` — background process mendapat shell baru dan tidak terinfeksi. ⚠️ **Catatan:** `pty=true` TIDAK selalu bisa reset corrupted session — foreground command pakai `pty=true` pun bisa tetap gagal dengan error yang sama. Hanya background mode yang reliable.
+## Pitfalls Penting (ringkas)
 
-- **execute_code + subprocess.Popen sebagai alternatif ketika terminal corrupted total:** Jika `terminal()` (foreground & background) gagal dengan error shell yang sama (corrupted bash state), gunakan `execute_code` dengan `subprocess.Popen` langsung via Python stdlib:
-  ```python
-  import subprocess
-  result = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True, timeout=300, errors="replace")
-  if result.stdout:
-      print(result.stdout[-2000:])
-  ```
-  Atau untuk multi-video parallel:
-  ```python
-  proc = subprocess.Popen(cmd, cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-  out, err = proc.communicate(timeout=480)
-  ```
-  **Catatan:** `execute_code` punya limit 300s total — tapi `subprocess.run` + `timeout=480` dalam script beberapa video bisa lebih panjang asal total waktu script < 300s. Untuk video yang butuh >300s, jalankan per video dalam script terpisah.
+Detail lengkap + cara fix: `references/pitfalls.md`.
 
-- **yt-dlp .part file lock setelah download terputus:** Jika yt-dlp di-kill tengah download, file `.part` tetap ada dan terkunci. Pipeline retry gagal dengan `HTTP Error 416: Requested range not satisfiable` karena yt-dlp minta range byte dari .part yang corrupted. **Fix:** Hapus .part file dulu, baru retry:
-  ```bash
-  # Kill yt-dlp proses
-  taskkill /F /IM yt-dlp.exe
-  # Hapus file .part
-  rm -f "path/to/audio_full.webm.part"
-  ```
-  Atau via Python:
-  ```python
-  import subprocess
-  subprocess.run(["taskkill", "/F", "/IM", "yt-dlp.exe"])
-  os.remove(part_file)
-  ```
-
-- **User prefer "Ustadz" bukan "Ust":** Setelah pipeline rename (yang ubah "Ust."/"Ust" → "Ustadz"), masih ada kasus deteksi yang menghasilkan "Ust" tanpa titik (contoh: "Ust Badru Salam, Lc"). User selalu ingin full "Ustadz". **Fix manual:** rename file + update metadata artist setelah pipeline selesai. Jangan kirim file dengan nama "Ust" ke user tanpa fix dulu.
-- **Path absolut semua:** Script menggunakan path absolut (jangan pakai ../../).
-- **yt-dlp butuh JS runtime:** Bisa warning soal deno/node — aman diabaikan, tidak mempengaruhi hasil.
-- **YouTube 429 Too Many Requests (Rate Limited):** yt-dlp error `HTTP Error 429: Too Many Requests` berarti YouTube memblokir request tanpa cookies autentikasi. **Ini blocking error, bukan warning.** Pipeline berhenti di Tahap 1 (gagal ambil judul/download audio). Penyebab & solusi lengkap ada di `references/yt-dlp-cookies-auth.md`.
-- **`--cookies-from-browser` gagal karena browser berjalan:** yt-dlp `--cookies-from-browser chrome` error `Could not copy Chrome cookie database` karena Chrome/Edge sedang berjalan dan database cookie terkunci. **Solusi:** Tutup semua window browser dulu, atau export cookies.txt manual via extension (Get cookies.txt), atau gunakan `--cookies-from-browser chrome --cookies-from-browser-args "new-env"`. Lihat `references/yt-dlp-cookies-auth.md` untuk detail.
-- **YouTube Live stream ended — butuh cookies:** Video yang sudah selesai live streaming tetap butuh cookies untuk diakses via yt-dlp. Tanpa cookies, error `Sign in to confirm you're not a bot`. Bahkan `player_client=android` tidak cukup — butuh PO Token tambahan untuk SABR-only streams. **Solusi:** Sediakan cookies valid dari browser yang sudah login YouTube.
-- **Ghost bin:** Hasil potong ada di `3_hasil_potong/` — jangan cari di folder lain.
-- **.env:** Tahap 1 butuh APIFY_TOKEN, Tahap 2 butuh OPENCODE_GO_API_KEY.
-- **Audio/video output:** Pipeline default download MP4 dan output MP4 clip. Untuk output MP3 (kajian), dibutuhkan modifikasi: ganti `download_video()` balik ke `yt-dlp -x`, tambah `-vn` di ffmpeg, ganti `.mp4` ke `.mp3` di output. Atau maintain pipeline.py terpisah untuk masing-masing mode. Lihat `references/talkshow-video-variant.md` untuk detail migrasi.
-- **Character spesial di judul video:** Judul dengan `#`, `&`, atau karakter spesial lainnya bikin path folder output sulit diproses pas delivery file (timeout di Telegram API). **Workaround:** copy file ke `/tmp/` dulu sebelum deliver.
-- **Trailing punctuation di judul video bikin mkdir gagal:** Judul seperti "... Zaen, Lc., M.A." bikin `sanitize()` motong pas di koma/spasi karena `[:100]`. **Fix:** `sanitize()` di `pipeline.py` pakai `.rstrip(" .-,()")` setelah `[:100]`.
-- **Folder lama dari run gagal:** Kalau run pertama gagal (misal karena error path), folder output tetap terbuat dengan nama salah. Run ulang dengan `exist_ok=True` akan pakai folder lama dan gagal lagi. **Fix:** `rm -rf` folder output hasil run gagal sebelum run ulang.
-- **Cache .pyc usang:** Setelah edit `pipeline.py`, hapus `__pycache__/pipeline.cpython-311.pyc` atau seluruh `__pycache__/` biar Python pake kode baru.
-- **Sequential transcript -> audio:** Pipeline sekarang cek transcript dulu sebelum download audio. Kalau transcript kosong, pipeline berhenti cepat tanpa download audio (hemat bandwidth & waktu).
-- **Fail fast:** kalau Apify gagal -> stop total, jangan lanjut.
-- **yt-dlp kadang simpan audio sebagai .m4a bukan .mp3:** Meskipun `--audio-format mp3`, yt-dlp terkadang menyimpan sebagai `audio_full.m4a` (tergantung codec source + ketersediaan ffmpeg di PATH untuk konversi). Pipeline Tahap 3 parse `.bat` mengganti `-i` ke `audio_full.mp3` — kalau file asli `.m4a`, pipeline error. **Fix:** Cek ekstensi file di `1_apify/` sebelum jalankan Tahap 3, atau pastikan ffmpeg terinstall dan terdeteksi yt-dlp di PATH sistem.
-- **Auto-cleanup audio_full.mp3/m4a:** Setelah Tahap 3 selesai, pipeline otomatis hapus `audio_full.mp3` (bisa 80-140MB) — clip sudah aman di `3_hasil_potong/`. Jangan kaget kalau file gak ada di folder 1_apify/ setelah pipeline selesai. Catatan: jika audio berupa `.m4a`, file tersebut juga akan dihapus di cleanup yang sama.
-- **Re-download audio otomatis:** Kalau transcript di-cache tapi `audio_full.mp3` gak ada (misal kedel eats auto-cleanup dari run sebelumnya), pipeline akan download ulang audio aja tanpa re-fetch transcript.
-- **AI salah konversi timestamp MM:SS -> HH:MM:SS:** Kadang AI generate `-ss 05:00:00` (5 jam) padahal maksudnya `00:05:00` (5 menit). **Fix:** Pipeline otomatis deteksi ini — kalo total detik timestamp > 2x durasi video, dikoreksi jadi `00:05:00`. Tapi lebih baik cegah dengan prompt yang jelas (lihat Prompt Rules di bawah).
-- **Presisi timestamp:** AI WAJIB pakai timestamp presisi dari transcript (desimal, contoh: `00:05:05.500`), jangan dibulatkan ke menit bulet. Aturan ini sudah di prompt Aturan #7.
-- **Karakter non-UTF8 di judul video:** Beberapa judul YouTube mengandung byte non-UTF8 yang bikin `subprocess.run` error. **Fix:** pipeline sudah pakai `errors="replace"` di subprocess call.
-- **`--skip-start` hanya untuk kasus tertentu:** User tidak ingin `--skip-start` dipakai default. Hanya gunakan kalau user explicitly bilang kajian dimulai menit sekian.
-- **YouTube Live / video tanpa caption:** Apify return `{"data": []}` -> pipeline gagal di "Transcript kosong". **STOP — jangan fallback ke faster-whisper atau transkripsi alternatif.** User tidak ingin transcripsi manual. Ikuti protokol diagnostik berikut:
-
-  **Protokol "Transcript Kosong" (wajib):**
-  1. **Konfirmasi** dengan `yt-dlp --list-subs <URL>` — output akan menampilkan salah satu/both:
-     - `"has no automatic captions"`
-     - `"has no subtitles"`
-  2. **Laporkan ke user** dengan pesan standar:
-     > 🎬 **Judul:** `{judul}`
-     > ❌ **Pipeline dihentikan** — video tidak memiliki teks takarir (automatic captions/subtitles) sama sekali.
-     > Pipeline membutuhkan transcript (dari takarir YouTube) untuk memproses video ini. Tidak ada alternatif transkripsi manual.
-  3. **JANGAN download audio** untuk transkripsi alternatif
-  4. **JANGAN coba fallback** via convert_subs.py / faster-whisper / API STT eksternal
-  5. **Simpan URL** untuk dicoba lagi nanti (auto-captions kadang muncul beberapa jam setelah upload, terutama untuk video LIVE) — bisa dijadwalkan via cron job retry
-
-  **Contoh output diagnostik:**
-  ```bash
-  # yt-dlp --list-subs <URL>
-  # Output:
-  #   jdjMoa84Zs0 has no automatic captions
-  #   jdjMoa84Zs0 has no subtitles
-  ```
-
-- **Auto clip count:** Pipeline hitung otomatis dari durasi audio: `max(3, min(12, round((durasi_detik-600)/600)))`. Skip 5 menit awal + 5 menit akhir. Override manual dengan `--clips N`.
-- **AI bisa kurangi jumlah clip:** AI (OpenCode Go mimo-v2.5) bisa menghasilkan clip lebih sedikit dari `--clips N` kalau tidak ada cukup segmen bagus untuk durasi yang diminta. **Ini normal dan diinginkan** — kualitas konten lebih penting dari jumlah clip. Jangan paksa AI generate clip kualitas rendah.
-- **Durasi clip ditampilkan:** Setiap clip hasil potong menampilkan durasi (MM:SS), ukuran (KB), dan waktu proses (detik) — ambil dari arg `-t` di ffmpeg.
-- **Beban CPU bukan token:** Pipeline ini lebih berat ke CPU laptop (FFmpeg paralel di Tahap 3) daripada konsumsi token AI. Token cuma dipakai di Tahap 2 (~20K/run). Sisanya murni lokal.
-- **Apostrophe dalam nama ustadz:** Nama seperti "Rofi'i" atau "Atho'illah" putuskan regex prefix `[A-Za-z\s.]+`. **Fix:** Regex tambah `'` dan `’` ke character class: `[A-Za-z\s.'’]+`.
-- **Hyphen biasa di judul:** Fallback deteksi ustadz cuma cari `|`, `–`, `—`. Kalau judul pakai hypen biasa `-` sebagai separator (contoh: "Ustadz X - Judul"), ustadz di awal gak kedeteksi karena separator `-` bukan `|`/`–`/`—`. **Fix:** Pastikan prefix regex handle nama dengan prefix "Ustadz" di awal judul.
-- **Gelar akademik di nama:** Semua gelar setelah koma (Lc., M.A., M.Sc., S.Pd.I., dll) harus dipotong. **Fix:** `re.sub(r',\\s*.*$', '', raw_name)` — potong semua setelah koma, bukan daftar gelar satu-satu.
-- **Nama dengan inisial "H." (Haji) potong huruf pertama nama yang mulai huruf H:** Regex hapus gelar di depan (`Dr., H., Hj., Prof., dll`) terlalu greedy — `H.` juga match huruf `H` pertama dari nama seperti "Hudzaifah". Contoh: "Ustadz Dr. Hudzaifah M. Maricar" → setelah Dr. dihapus, `H.` regex potong `H` dari "Hudzaifah" → "udzaifah M. Maricar". **Fix:** Pastikan regex gelar hanya match `H.` (dengan titik) sebagai kata utuh, bukan `H` sebagai huruf pertama dari token berikutnya. Di pipeline.py, gunakan negative lookahead atau batasi ke token yg memang singkatan (`\bH\.\b` bukan `H\.?`).
-- **Jangan ubah `hasil_dir` ke folder bersama (flat output):** Pipeline rename section (`main()`) memproses SEMUA file `.mp3` di `hasil_dir`, bukan cuma file baru. Kalau `hasil_dir` diubah ke `BASE_DIR / "output"` (flat), rename akan merusak nama file clip dari run sebelumnya. **Fix:** `hasil_dir` HARUS `output_dir / "3_hasil_potong"` (per-video folder), jangan flat.
-- **Deteksi ustadz bisa gagal:** Kalau judul video tidak pakai prefix "Ustadz"/"Ust."/dll, pipeline fallback ambil segmen terakhir setelah separator. Akibatnya nama ustadz bisa salah (contoh: "Maell Lee" terdeteksi padahal isinya Ustadz Khalid Basalamah). **Varian tambahan:** Judul yang dimulai dengan "Ustadz" tapi diikuti kata kerja/kalimat tanya (bukan nama orang), misal "Ustadz dibayar Ngisi Kajian, Dosa atau Boleh" → prefix match tetap fires, pipeline potong setelah "Ustadz " dan hasilkan nama palsu "Ustadz dibayar Ngisi Kajian". **Fix:** Manual rename & update metadata setelah pipeline selesai. Lihat references/ustadz-detection-failures.md Kasus 6.
-- **Sub-agent bisa lapor sukses padahal file gak beneran tersimpan:** Sub-agent summary adalah self-report — bisa melaporkan sukses padahal file mp3 tidak ada di disk (berlaku untuk direct run juga). **Verifikasi:** Selalu `ls` folder output setelah pipeline selesai untuk memastikan file .mp3 beneran ada di `3_hasil_potong/`.
-- **Hapus parameter `&pp=` dari URL YouTube:** Parameter `&pp=...` adalah search context, bukan bagian dari video ID. Pipeline bisa gagal atau berperilaku aneh. **Fix:** strip `&pp` dan parameter tracking lainnya dari URL sebelum kirim ke pipeline.
-- **AI override `--clips N`:** AI (OpenCode Go mimo-v2.5) kadang menghasilkan clip lebih banyak dari `--clips N` yang diminta karena nemu topik bagus tambahan, atau lebih sedikit karena tidak ada cukup segmen berkualitas. Pipeline tetap proses apa yang AI hasilkan — tidak ada filter ketat. Kalau mau strict, naikkan `temperature=0` di payload API.
-- **YouTube Live tanpa captions:** yt-dlp `--list-subs` berguna untuk cek cepat apakah video punya caption sebelum jalankan pipeline penuh. `yt-dlp --list-subs <URL>` akan bilang "has no automatic captions" / "has no subtitles" kalau kosong.
-- **Cron job retry untuk video gagal:** Video yang gagal karena transcript kosong (YouTube Live) bisa dijadwalkan ulang via cron job untuk besok/hari berikutnya — kadang caption auto-generated baru muncul beberapa jam setelah upload. Buat cronjob 1x dengan action='create', schedule='YYYY-MM-DDT08:00:00' (besok pagi).
-- **Transcript auto-translate (Inggris) — FIXED v1.20.0:** Apify actor `pintostudio~youtube-transcript-scraper` mendukung field `targetLanguage`. Tanpa field itu, actor mengembalikan caption **auto-translate** (sering Inggris) meski video aslinya Indonesia — akibatnya AI salah menilai topik dan durasi clip ngawur (contoh nyata: video Rofi'i 60 mnt → 4 clip 0:50/1:24/2:10/8:20, ada segmen "penutup" di 43:30). **Fix:** kirim `targetLanguage: "id"` (default; override via env `APIFY_LANG`). Kalau ganti bahasa, hapus `1_apify/transcript.json` dulu agar tidak pakai cache lama.
-- **Guard durasi clip — FIXED v1.20.0:** AI kadang menghasilkan clip di luar rentang `--min/--max` meski prompt melarang. **Fix:** Tahap 2 menghitung durasi tiap `-t` di `.bat`; kalau ada yang di luar rentang, kirim pesan koreksi ke AI (1x). Setelah itu Tahap 3 **skip deterministik** clip yang masih di luar rentang dan hanya memotong yang valid. Konsekuensi: jumlah clip bisa lebih sedikit dari `--clips`.
-- **Guard OVERLAP clip — FIXED v1.22.0:** AI kadang menghasilkan clip yang saling tumpang tindih (start clip berikut < end clip sebelumnya) → konten terduplikasi/terpotong. **Fix:** Tahap 2 deteksi overlap (pasangan `-ss`+`-t`) & minta AI perbaiki 1x; Tahap 3 urutkan per waktu lalu **buang** clip yang overlap (pertahankan yang lebih awal). **Catatan:** AI cenderung mengunci durasi ke 300s (5:00) walau rentangnya 4-6 mnt; kalau ingin clip mengikuti topik utuh, longgarkan `--max` (mis. 8-10 mnt).
-- **Provider AI bisa diganti (`AI_PROVIDER`):** `openrouter` (default) atau `opencode`. Di `.env`: `AI_PROVIDER`, `OPENROUTER_MODEL` (default `deepseek/deepseek-v4.1-flash`), `OPENROUTER_REASONING` (default `none`), `OPENROUTER_API_KEY`. Kunci OpenRouter ada di `~/.openclaw/openclaw.json` (`models.providers.openrouter.apiKey`) dan sudah disalin ke `.env` pipeline. Kalau OpenCode Go di-top-up, cukup set `AI_PROVIDER=opencode` untuk kembali.
-- **OpenCode Go `CreditsError` (HTTP 401, saldo habis):** Kalau API balas `401` dengan `"type":"CreditsError","message":"Insufficient balance"`, artinya saldo OpenCode Go habis — bukan bug pipeline. Pipeline berhenti di Tahap 2 setelah 2 percobaan retry. **Tindakan:** laporkan ke user untuk top-up billing OpenCode Go; JANGAN retry berulang (tiap retry gagal tanpa hasil). Transcript + audio Tahap 1 tetap tersimpan di `1_apify/` — **simpan folder itu** supaya retry setelah top-up langsung ke Tahap 2 (tanpa biaya Apify & download ulang).
-- **OpenCode Go API timeout / lambat di Tahap 2 (FIXED v1.19.0):** Model `mimo-v2.5` punya *reasoning* internal yang bikin Tahap 2 lambat/gantung — terukur 660s+ (dan pernah timeout 900s) untuk transcript 95K char. **Fix:** kirim `"reasoning_effort": "none"` di payload → Tahap 2 turun ke ~26-29s (~23x lebih cepat). Sudah dipatch di pipeline.py; bisa dioverride via env `OPENCODE_GO_REASONING`. Timeout juga diturunkan 900s → 300s dengan retry otomatis 2x. **Penting:** URL harus berakhir `/chat/completions`, dan header `x-opencode-session` WAJIB ada (tanpa itu HTTP 400 `MissingSessionID`).
-- **Total runtime per durasi video:** Pipeline selesai dalam skala menit tergantung panjang video dan transcript. Data dari real runs:
-  - **Video 40-50 min (~1000 segmen, 57K chars):** ~2-3 menit total dengan fix kecepatan — transcript fetch (10s), audio download (2-3 min), AI analysis (~25s), FFmpeg potong (20s).
-  - **Video LIVE 81 min (1764 segmen, 95K chars):** ~2,5 menit total dengan fix — transcript fetch (14s), audio download (60s), AI analysis (~29s), FFmpeg potong 7 clip paralel (24s). (Run nyata 2026-09-14, 7 clip.)
-  - **Video LIVE 90-180 min (100K-200K chars):** ~3-6 menit dengan fix. Tanpa `reasoning_effort=none`, Tahap 2 bisa 11-15 menit atau timeout 900s.
-  - Saat dijalankan via Hermes agent, pipeline dapat terpotong oleh tool-call iteration limit sebelum selesai. **Mitigasi:** Gunakan background mode dengan notify_on_complete=true. Jika tool-call limit tercapai sebelum pipeline selesai, proses tetap berjalan di background — poll/log di turn berikutnya. Jangan delete output folder di tengah jalan kalau cache masih berguna untuk retry nanti.
-## Prompt Rules (WAJIB dipatuhi AI)
-
-Aturan ini sudah tertanam di `pipeline.py` system prompt. Jika ada modifikasi prompt, edit langsung di file pipeline.py, lalu update referensi di sini.
-
-### Mode KAJIAN (default lama, MP3, --min 4 --max 6)
-
-- **Aturan K1:** CARI TRANSISI TOPIK DULU. Clip boundary = batas antar topik, bukan batas waktu.
-- **Aturan K2:** DURASI WAJIB antara min-max menit. JANGAN PERNAH melebihi max. Jika topik panjang, potong bagian terbaik saja.
-- **Aturan K3:** HINDARI clip di bawah 3 menit — gabungkan atau skip.
-- **Aturan K4:** JANGAN potong per menit bulet. Boundary di akhir kalimat/paragraf transcript.
-- **Aturan K5:** "Target ~N clip, jangan maksain" — prioritas selesainya satu pembahasan utuh.
-- **Aturan K6:** HINDARI bagian OPENING. Jangan pilih clip yang mengandung salam pembuka, basmalah, hamdalah, atau perkenalan pembicara.
-- **Aturan K7:** HINDARI bagian ADZAN. Jika transcript mengandung lafadz adzan atau jeda adzan, jangan pilih segmen itu.
-- **Aturan K8:** HINDARI bagian CLOSING. Jangan pilih clip yang mencakup doa penutup, wassalam, pengumuman kajian berikutnya, atau Q&A akhir.
-- **Aturan K9:** Clip harus dari topik berbeda, jangan berurutan, sebar di seluruh video.
-- **Aturan K10:** NO OVERLAP. Clip WAJIB diurutkan berdasarkan waktu. Start berikutnya > end sebelumnya.
-
-### Mode TALKSHOW RADIO (default baru, MP4, --min 1 --max 2)
-
-- **Aturan T1:** **WAJIB hindari BREAK IKLAN** — segmen di mana host bilang "kita akan break", "setelah break", "kembali setelah ini", musik jeda iklan, dll.
-- **Aturan T2:** **WAJIB hindari IKLAN RADIO** — segmen promosi produk/sponsor, call to action iklan, tagline sponsor.
-- **Aturan T3:** **WAJIB hindari OPENING** — salam pembuka, perkenalan host/narasumber, jingle pembuka.
-- **Aturan T4:** **WAJIB hindari CLOSING** — salam penutup, pengumuman acara mendatang, kredit penutup.
-- **Aturan T5:** DURASI WAJIB antara min-max menit. JANGAN PERNAH melebihi max. Clip <45 detik juga tidak boleh.
-- **Aturan T6:** SEBAR di seluruh durasi — jangan ambil semua clip dari 10 menit pertama saja.
-- **Aturan T7:** Pilih segmen paling engaging: debat menarik, curhat inspiratif, opini kontroversial, data/fakta mengejutkan, humor cerdas, cerita personal yang kuat.
-- **Aturan T8:** Clip = satu sesi tanya-jawab atau satu topik mini. No overlap, urut berdasarkan waktu.
-
-> **Perubahan penting di v1.1.0:** Aturan #6-#8 lama = hindari opening/adzan/closing. Sebelumnya aturan #6 hard-code skip 5 menit pertama. Sekarang AI deteksi dari teks transcript, lebih akurat.
-
-> **Perubahan penting di v1.13.0:** Default berubah ke mode Talkshow Radio (MP4, 1-2 min). Mode Kajian (MP3, 4-6 min) tersedia via parameter eksplisit `--min 4 --max 6`. Lihat `references/talkshow-video-variant.md` untuk detail perubahan pipeline.
+- **Video tanpa takarir:** transcript kosong -> STOP, jangan fallback whisper. Konfirmasi `yt-dlp --list-subs <URL>`.
+- **Bahasa transcript:** wajib `targetLanguage='id'` (default). Ganti bahasa -> hapus `1_apify/transcript.json` dulu.
+- **Kecepatan AI:** kirim `reasoning_effort=none` (OpenRouter & OpenCode). Tanpa itu 89-660s / timeout.
+- **CreditsError 401 (saldo habis):** lapor ke user, JANGAN retry beruntun; simpan cache Tahap 1.
+- **Guard durasi & overlap:** clip wajib dalam `--min`-`--max` menit & tidak tumpang tindih (Tahap 2 re-ask, Tahap 3 skip).
+- **Deteksi ustadz bisa salah:** verifikasi nama & rename manual bila perlu.
+- **Cache:** `1_apify/transcript.json` + `audio_full.mp3`; audio dihapus otomatis setelah sukses.
+- **Selalu verifikasi:** `ls 3_hasil_potong/` setelah selesai (jangan percaya self-report).
