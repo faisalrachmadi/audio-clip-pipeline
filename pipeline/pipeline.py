@@ -89,6 +89,16 @@ def bersihkan_gelar(nama):
     return s.rstrip("., ").strip()
 
 
+def _normalisasi_judul(title):
+    """Normalisasi judul untuk deteksi nama ustadz: buang tulisan Arab (doa/honorifik
+    seperti حفظه الله), emoji, dan tag [LIVE] — supaya regex Latin bisa match sampai akhir."""
+    t = re.sub(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+', ' ', title)
+    t = re.sub(r'[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u2B00-\u2BFF]', '', t)
+    t = re.sub(r'\[(?:LIVE(?: TUNDA)?|REKAMAN|PREMIERE)\]', ' ', t, flags=re.IGNORECASE)
+    t = re.sub(r'\s{2,}', ' ', t)
+    return t.strip(' -–—|,;')
+
+
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(description="YouTube → Clip MP3 Pipeline")
@@ -702,18 +712,21 @@ def main():
         hasil_dir = output_dir / "3_hasil_potong"
         clip_files = sorted(hasil_dir.glob("*.mp3"))
         if clip_files:
-            # Deteksi nama ustadz dari judul video
+            # Deteksi nama ustadz dari judul video.
+            # Judul dinormalisasi dulu: buang tulisan Arab (doa/honorifik seperti حفظه الله),
+            # emoji, dan tag [LIVE] — kalau tidak, kelas [A-Za-z...] gagal match & nama ustadz tak terdeteksi.
+            title_detect = _normalisasi_judul(title)
             ustadz_full = None
             # 1. Coba pola dengan prefix (Ustadz, Ust., KH., dll)
             ustadz_match = re.search(
                 r'(Ustadz?\.?\s+(?:Dr\.?\s+)?(?:H\.?\s+)?(?:Hj\.?\s+)?[A-Za-z\s.\'’]+?'
                 r'|Ust\.\s+(?:Dr\.?\s+)?(?:H\.?\s+)?(?:Hj\.?\s+)?[A-Za-z\s.\'’]+?)'
                 r'(?:,|\||–|—|-|\bat\b|\bvia\b|$)',
-                title, re.IGNORECASE
+                title_detect, re.IGNORECASE
             )
             if not ustadz_match:
-                # 2. Fallback: ambil segmen terakhir setelah separator, apapun karakternya
-                seg_match = re.search(r'[|–—]\s*(.+)$', title)
+                # 2. Fallback: segmen terakhir setelah separator (wajib berspasi, biar "Fase-Fase" tidak kena)
+                seg_match = re.search(r'\s[-–—|]\s+(.+)$', title_detect)
                 if seg_match:
                     candidate = seg_match.group(1).strip()
                     # Filter: harus mengandung huruf (bukan cuma angka/simbol)
@@ -737,8 +750,9 @@ def main():
                 ustadz_full = " ".join(name_parts).strip().rstrip("., ")
                 # Pastikan diawali "Ustadz" — ganti "Ust." jadi "Ustadz"
                 ustadz_full = re.sub(r'^Ust\.\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
-                # Hapus singkatan gelar di depan (Dr., H., Hj., Prof., dll)
-                ustadz_full = re.sub(r'^Ustadz\s+(?:Dr\.?\s*|H\.?\s*|Hj\.?\s*|Prof\.?\s*|KH\.?\s*)+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE).strip()
+                # Hapus singkatan gelar di depan (Dr., H., Hj., Prof., KH.) — WAJIB diikuti spasi,
+                # biar "Hudzaifah"/"Khalid" tidak kepotong jadi "udzaifah"/"alid"
+                ustadz_full = re.sub(r'^Ustadz\s+(?:(?:Dr|H|Hj|Prof|KH)\.?\s+)+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE).strip()
                 # Ganti "Ust" (dengan/tanpa titik) jadi "Ustadz"
                 ustadz_full = re.sub(r'^Ust\.?\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
                 if not re.match(r'Ustadz?\.?\s', ustadz_full, re.IGNORECASE):
@@ -751,17 +765,17 @@ def main():
                 # Hapus bagian ustadz dari title untuk album
                 ustart, uend = ustadz_match.start(), ustadz_match.end()
                 if ustart == 0:
-                    album_clean = title[uend:]
+                    album_clean = title_detect[uend:]
                     album_clean = re.sub(r'^\s*[-–—|,;]\s*', '', album_clean)
-                elif uend == len(title):
-                    album_clean = title[:ustart]
+                elif uend == len(title_detect):
+                    album_clean = title_detect[:ustart]
                     album_clean = re.sub(r'\s*[-–—|,;]\s*$', '', album_clean)
                 else:
-                    album_clean = title[:ustart] + title[uend:]
+                    album_clean = title_detect[:ustart] + title_detect[uend:]
                     album_clean = album_clean.strip(" -–—|,;")
                 meta_album = album_clean.strip()
             else:
-                meta_album = title.strip()
+                meta_album = title_detect.strip()
             # Bersihkan sisa gelar akademik (mis. "M.Sc.") yang tertinggal setelah nama ustadz dihapus
             meta_album = re.sub(
                 r'(?<![\w.])(?:M\.?\s*Sc\.?|M\.?\s*A\.?|M\.?\s*Ag\.?|M\.?\s*Pd\.?|M\.?\s*Hum\.?|M\.?\s*E\.?|Lc\.?|Ph\.?\s*D\.?|S\.?\s*Ag\.?|S\.?\s*Pd\.?|S\.?\s*Kom\.?|S\.?\s*T\.?|S\.?\s*S\.?)(?=\s|$|[-–—|,;])',
@@ -803,7 +817,7 @@ def main():
                 # ── Tambah metadata ID3 ──
                 try:
                     meta_title = clip_title
-                    meta_artist = ustadz_full if ustadz_full else (re.sub(r'^.*?[-–|]\s*', '', title).strip() or "Kajian")
+                    meta_artist = ustadz_full if ustadz_full else (re.sub(r'^.*?[-–|]\s*', '', title_detect).strip() or "Kajian")
                     # meta_album sudah diset di atas (dibersihkan dari nama ustadz)
                     temp_path = hasil_dir / f"_temp_{new_path.name}"
                     subprocess.run([

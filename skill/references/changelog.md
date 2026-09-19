@@ -1,6 +1,11 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.28.0 - FIX deteksi nama ustadz untuk judul dengan tulisan Arab (doa/honorifik seperti حفظه الله), emoji,
+#          atau tag [LIVE]: kelas regex [A-Za-z] tidak match huruf Arab sehingga deteksi GAGAL total (nama file
+#          tanpa suffix ustadz, artist ikut judul mentah). Fix: _normalisasi_judul() buang tulisan Arab/emoji/[LIVE]
+#          sebelum regex; fallback separator wajib berspasi ("Fase-Fase" tidak salah kena).
+#          Sekaligus fix bug lama "Hudzaifah M. Maricar" -> "udzaifah" (gelar H. tanpa syarat spasi).
 # 1.27.0 - OPTIMASI: probe durasi via ffprobe (baca header, ~0.03s) ganti ffmpeg -f null (decode penuh, ~3s)
 #          di 3 tempat (get_audio_duration, parse_ffmpeg_commands, get_file_duration); tag album buang separator
 #          menggantung; hapus dead code (_durs). Diukur: audio 78MB 3.24s -> 0.03s; clip 8MB 0.37s -> 0.03s.
