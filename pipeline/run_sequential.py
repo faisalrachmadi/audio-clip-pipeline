@@ -1,18 +1,20 @@
 """
-Runner SEQUENTIAL untuk insert-radio pipeline.
+Runner SEQUENTIAL untuk insert-radio pipeline (Linux).
 Menjalankan beberapa video SATU PER SATU untuk menghindari rate-limit API.
 
 Cara pakai:
-  python run_sequential.py "URL1" "URL2" "URL3" [--clips 5] [--skip-start M1 M2 ...]
+  python3 run_sequential.py "URL1" "URL2" "URL3" [--clips 5] [--skip-start M1 M2 ...]
   - --skip-start: offset menit skip awal per URL (optional, harus sejumlah URL)
 """
 
 import subprocess
 import sys
 import shlex
+import os
 
-PIPELINE = r"D:\Insert Automation\Insert maker\automate insert\pipeline.py"
-PYTHON = r"D:\Insert Automation\Insert maker\automate insert\1. apify + audio\venv\Scripts\python.exe"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE = os.path.join(BASE_DIR, "pipeline.py")
+PYTHON = sys.executable
 
 def parse_args(argv):
     urls = []
@@ -35,7 +37,7 @@ def parse_args(argv):
 def main():
     urls, clips, skip_starts = parse_args(sys.argv[1:])
     if not urls:
-        print("Gunakan: python run_sequential.py URL1 URL2 ... [--clips N] [--skip-start m1 m2 ...]")
+        print("Gunakan: python3 run_sequential.py URL1 URL2 ... [--clips N] [--skip-start m1 m2 ...]")
         return
 
     if skip_starts and len(skip_starts) != len(urls):

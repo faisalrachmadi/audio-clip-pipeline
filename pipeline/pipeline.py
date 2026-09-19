@@ -8,7 +8,7 @@ Optimasi:
   C = Cache transcript (skip Apify kalau sudah ada)
 """
 
-import json, os, re, sys, subprocess, shlex, time, uuid
+import json, os, re, sys, subprocess, shlex, shutil, time
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,23 +24,36 @@ if os.name == 'nt':
 # ─── Konfigurasi ───────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent.resolve()
 
-load_dotenv(BASE_DIR / "1. apify + audio" / ".env")
+load_dotenv(BASE_DIR / ".env")
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
-
-load_dotenv(BASE_DIR / "2. Analisa json" / ".env")
 # API key: prioritaskan OpenCode Go (OPENCODE_GO_API_KEY), fallback DeepSeek direct (DEEPSEEK_API_KEY)
 DEEPSEEK_KEY = os.getenv("OPENCODE_GO_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
 
-YT_DLP = r"C:\yt-dlp_win\yt-dlp.exe"
-FFMPEG = r"C:\ffmpeg-2025-11-12-git-6cdd2cbe32-essentials_build\bin\ffmpeg.exe"
+YT_DLP = shutil.which("yt-dlp")
+FFMPEG = shutil.which("ffmpeg")
 
-for path, name in [(YT_DLP, "yt-dlp"), (FFMPEG, "ffmpeg")]:
-    if not os.path.exists(path):
-        sys.exit(f"❌ {name} tidak ditemukan di: {path}")
+if not YT_DLP:
+    sys.exit("❌ yt-dlp tidak ditemukan di PATH")
+if not FFMPEG:
+    sys.exit("❌ ffmpeg tidak ditemukan di PATH")
 
 APIFY_ACTOR = "https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items"
-DEEPSEEK_URL = os.getenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1") + "/chat/completions"
-MODEL_ID = "deepseek-v4.1-flash"
+
+# ─── Provider AI (dipilih via env AI_PROVIDER) ─────────────────
+# "openrouter" (default) atau "opencode". Kunci dibaca dari .env.
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter").strip().lower()
+if AI_PROVIDER == "openrouter":
+    DEEPSEEK_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1") + "/chat/completions"
+    DEEPSEEK_KEY = os.getenv("OPENROUTER_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+    MODEL_ID = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4.1-flash")
+    AI_REASONING = os.getenv("OPENROUTER_REASONING", "")
+    AI_EXTRA_HEADERS = {"HTTP-Referer": "https://localhost", "X-Title": "AutoClip Pipeline"}
+else:
+    DEEPSEEK_URL = os.getenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1") + "/chat/completions"
+    DEEPSEEK_KEY = os.getenv("OPENCODE_GO_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+    MODEL_ID = os.getenv("OPENCODE_GO_MODEL", "mimo-v2.5")
+    AI_REASONING = os.getenv("OPENCODE_GO_REASONING", "none")
+    AI_EXTRA_HEADERS = {"x-opencode-session": "autoclip-pipeline-v1", "HTTP-Referer": "https://localhost", "X-Title": "AutoClip Pipeline"}
 
 MAX_WORKERS = os.cpu_count() or 4
 
@@ -57,29 +70,11 @@ def sanitize(text):
     return text.strip(" .-,()").rstrip(" .-,()")[:100].rstrip(" .-,()")
 
 
-def bersihkan_gelar(nama):
-    """Hapus gelar akademik di depan/belakang nama ustadz (Dr, Lc, MA, M.Sc, Ph.D, dll)."""
-    deg = (r"(?:Dr|Drs|Dra|MA|M\.A|M\.Ag|M\.Pd|M\.Sc|M\.Si|MM|MBA|MPd|MAg|Lc|L\.c"
-           r"|PhD|Ph\.D|S\.Pd|S\.Ag|S\.H|S\.E|S\.Sos|S\.T|S\.Kom|S\.Fil|SPd|SAg"
-           r"|BA|ST|SE|SH|Prof|KH|Hj)")
-    s = nama
-    while True:
-        prev = s
-        # gelar di belakang - wajib ada pemisah (spasi/koma)
-        s = re.sub(r"(?:\s*,\s*|\s+)" + deg + r"\.?\s*$", "", s, flags=re.IGNORECASE).strip()
-        # gelar di depan setelah "Ustadz" - wajib pemisah, biar "Khalid" tidak kena "KH"
-        s = re.sub(r"^Ustadz(?:\s*,\s*|\s+)(?:(?:" + deg + r")\.?(?:\s*,\s*|\s+))+",
-                   "Ustadz ", s, flags=re.IGNORECASE).strip()
-        if s == prev:
-            break
-    return s.rstrip("., ").strip()
-
-
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(description="YouTube → Clip MP3 Pipeline")
     p.add_argument("url", help="URL YouTube")
-    p.add_argument("--clips", type=int, default=5, help="Jumlah clip (0=auto berdasarkan durasi video, default: 5)")
+    p.add_argument("--clips", type=int, default=0, help="Jumlah clip (0=auto berdasarkan durasi video, default: 0)")
     p.add_argument("--min", type=int, default=4, help="Durasi minimal per clip menit (default: 4)")
     p.add_argument("--max", type=int, default=6, help="Durasi maksimal per clip menit (default: 6)")
     p.add_argument("--skip-start", type=int, default=0, help="Skip N menit awal (default: 0)")
@@ -129,7 +124,7 @@ def download_audio(url, audio_path):
     for attempt in range(2):
         try:
             run_subprocess(
-                [YT_DLP, "-x", "--audio-format", "mp3", "--audio-quality", "0",
+                [YT_DLP, "--js-runtimes", "node", "-x", "--audio-format", "mp3", "--audio-quality", "0",
                  "-o", str(audio_path), url],
                 desc=f"download audio (percobaan {attempt+1})",
                 timeout=600,
@@ -144,10 +139,16 @@ def download_audio(url, audio_path):
 
 
 def fetch_transcript(url, token):
-    """Panggil Apify API, return data JSON."""
+    """Panggil Apify API, return data JSON.
+
+    targetLanguage: bahasa transcript. Default 'id' (asli video berbahasa Indonesia).
+    Tanpa ini, Apify mengembalikan caption auto-translate (sering Inggris) sehingga
+    kualitas pemilihan topik turun.
+    """
+    lang = os.getenv("APIFY_LANG", "id")
     resp = requests.post(
         f"{APIFY_ACTOR}?token={token}",
-        json={"videoUrl": url},  # auto-detect language
+        json={"videoUrl": url, "targetLanguage": lang},
         timeout=300,
     )
     if not resp.ok:
@@ -240,7 +241,7 @@ def tahap2(transcript_path, output_dir, jumlah_clip, durasi_min, durasi_max, ski
     analisa_dir.mkdir(parents=True, exist_ok=True)
 
     if not DEEPSEEK_KEY:
-        sys.exit("❌ DEEPSEEK_API_KEY tidak ditemukan")
+        sys.exit(f"❌ API key AI ({AI_PROVIDER}) tidak ditemukan di .env")
 
     with open(transcript_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -310,16 +311,16 @@ Cara membaca konten:
 Baca transcript dengan saksama. Tugasmu:
 1. **Identifikasi transisi topik** — baca konten teks, cari di mana pembicara selesai satu bahasan dan pindah ke bahasan baru.
 2. **Pilih N topik terbaik** — pilih yang paling berdampak, informatif, atau menarik sebagai clip mandiri.
-3. **Tentukan boundary clip = awal & akhir satu topik utuh.** Clip WAJIB mulai dari saat topik itu DIBUKA dan berakhir setelah topik itu TUNTAS dibahas. Jangan potong di tengah topik, di tengah kalimat, atau di tengah alur penjelasan.
+3. **Tentukan boundary clip = awal & akhir satu topik utuh.** Jangan potong di tengah topik.
 
 Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus dipaksakan seragam.
 
 ## ATURAN SELEKSI CLIP
 1. **CARI TRANGSISI TOPIK DULU.** Baca teks transcript, identifikasi dimana pembahasan berganti (misal: pembicara selesai bahas topik A lalu bilang "selanjutnya..." / "berikutnya..." / "adapun..." / jeda panjang). Clip boundary = batas transisi topik.
-2. **DURASI WAJIB antara {durasi_min}-{durasi_max} menit.** JANGAN PERNAH melebihi {durasi_max} menit. Variasi durasi bagus, tapi tetap dalam batas. Kalau satu topik lebih panjang dari {durasi_max} menit, cari SUB-TOPIK utuh di dalamnya atau pilih topik lain yang muat — jangan potong di tengah alur.
+2. **DURASI WAJIB antara {durasi_min}-{durasi_max} menit.** JANGAN PERNAH melebihi {durasi_max} menit. Variasi durasi bagus, tapi tetap dalam batas. Jika satu topik terlalu panjang, pilih BAGIAN TERBAIK dari topik itu (jangan seluruhnya).
 3. **HINDARI clip di bawah 3 menit** — terlalu pendek untuk konten mandiri. Gabungkan dengan topik kecil lain yang berdekatan, atau skip.
 4. **JANGAN potong per menit bulet** (jangan `00:05:00`). Clip boundary HARUS di akhir satu kalimat/paragraf utuh dari transcript.
-5. **Target {jumlah_clip} clip**, tapi utamakan MUTU & KEUTUHAN materi. Kalau transcript tidak punya cukup topik utuh yang bermutu, **LEBIH BAIK menghasilkan KURANG dari {jumlah_clip}** — jangan mengejar jumlah dengan memotong konteks.
+5. Target sekitar {jumlah_clip} clip, jangan maksain — prioritas selesainya satu pembahasan utuh.
 6. **HINDARI bagian OPENING.** Jangan pilih clip yang mengandung salam pembuka (Assalamu'alaikum), basmalah (Bismillahirrahmanirrahim), puji-pujian (Alhamdulillah, hamdalah), atau perkenalan pembicara/pembawa acara. Clip harus dari ISI KAJIAN inti.
 7. **HINDARI bagian ADZAN.** Jika transcript mengandung lafadz adzan atau jeda adzan di tengah video, jangan pilih segmen itu sebagai clip.
 8. **HINDARI bagian CLOSING.** Jangan pilih clip yang mencakup doa penutup, wassalam, pengumuman kajian berikutnya, atau Q&A di akhir sesi. Clip AKHIR: berhenti di akhir topik kajian, potong SEBELUM penutup dimulai.
@@ -331,10 +332,7 @@ Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus di
 - **Awal clip:** kalimat pertama topik yang bisa dipahami tanpa konteks sebelumnya.
 - **Akhir clip:** kalimat TERAKHIR sebelum pembicara pindah ke topik baru. Cari di transcript: kata-kata penutup topik (kesimpulan, rangkuman) atau frasa transisi ("selanjutnya", "berikutnya", "adapun", "kita lanjut", "selesai", dll).
 - **TIDAK BOLEH** potong di tengah kalimat, di tengah paragraf, atau saat pembicara masih menjelaskan satu poin.
-- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun.
-- **Kalau satu topik utuh lebih panjang dari {durasi_max} menit:** JANGAN potong asal di tengah — cari **SUB-TOPIK yang utuh** di dalamnya (yang punya pembuka & penutup sendiri), atau pilih topik lain yang muat. Yang dilarang: memotong di tengah alur penjelasan hanya demi durasi.
-- **TES AKHIR (wajib dilakukan untuk setiap clip):** bayangkan clip diputar berdiri sendiri. Apakah pendengar paham dari awal sampai akhir, tanpa merasa ada bagian yang menggantung atau hilang? Kalau tidak, GESER boundary-nya sampai utuh.
-- **PRIORITAS:** keutuhan konteks > jumlah clip > durasi maksimum.
+- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Jika satu topik utuh lebih panjang dari {durasi_max} menit, potong hanya BAGIAN TERBAIK dari topik tersebut. Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun.
 
 ## FORMAT OUTPUT (ikuti persis, untuk setiap clip)
 ### Clip [Nomor]: [Judul Deskriptif Sesuai Isi Clip]
@@ -360,7 +358,7 @@ Aturan nama file:
 - Maksimal 5 kata, huruf kecil, tanpa spasi/karakter khusus
 - Nilai [durasi_detik-2] = total durasi clip dikurangi 2"""
 
-    log(f"  Mengirim ke DeepSeek ({MODEL_ID})...")
+    log(f"  Mengirim ke {AI_PROVIDER} ({MODEL_ID})...")
     log(f"  Clip: {jumlah_clip}, Durasi: {durasi_min}-{durasi_max} menit")
 
     payload = {
@@ -371,42 +369,118 @@ Aturan nama file:
         ],
         "temperature": 0.2,
     }
+    # OpenCode Go: reasoning_effort=none (660s -> ~26s). OpenRouter: biarkan default kecuali di-set.
+    if AI_REASONING:
+        payload["reasoning_effort"] = AI_REASONING
 
-    resp = requests.post(
-        DEEPSEEK_URL,
-        headers={
-            "Authorization": f"Bearer {DEEPSEEK_KEY}",
-            "HTTP-Referer": "https://localhost",
-            "X-Title": "AutoClip Pipeline",
-            "x-opencode-session": str(uuid.uuid4()),
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=1200,
-    )
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_KEY}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Content-Type": "application/json",
+        **AI_EXTRA_HEADERS,
+    }
 
-    if not resp.ok:
-        sys.exit(f"❌ AI gagal (HTTP {resp.status_code}): {resp.text[:300]}")
+    ai_response = None
+    last_err = None
+    for attempt in range(1, 3):
+        try:
+            resp = requests.post(DEEPSEEK_URL, headers=headers, json=payload, timeout=300)
+            if not resp.ok:
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+            ai_response = resp.json()["choices"][0]["message"]["content"]
+            break
+        except Exception as e:
+            last_err = e
+            log(f"  ⚠️  AI gagal (percobaan {attempt}): {str(e)[:150]}")
+            if attempt < 2:
+                time.sleep(5)
 
-    ai_response = resp.json()["choices"][0]["message"]["content"]
+    if ai_response is None:
+        sys.exit(f"❌ AI gagal setelah 2 percobaan: {last_err}")
+
     log(f"  ✅ Response AI ({len(ai_response)} chars)")
+
+    def _extract_bat(txt):
+        m = re.search(r"```(?:bat|batch|cmd)?\n(.*?@echo off.*?)```", txt, re.DOTALL | re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        if "@echo off" in txt:
+            return txt[txt.find("@echo off"):].strip()
+        return txt
+
+    def _durs(txt):
+        return [float(x) for x in re.findall(r"-t\s+(\d+(?:\.\d+)?)", txt)]
+
+    bat_content = _extract_bat(ai_response)
+
+    # ── Validasi durasi + overlap (deterministik). Kalau melanggar, minta AI perbaiki 1x ──
+    min_sec, max_sec = durasi_min * 60, durasi_max * 60
+
+    def _spans(txt):
+        spans = []
+        for m in re.finditer(r"-ss\s+(\d+):(\d+):(\d+(?:\.\d+)?)\s+-t\s+(\d+(?:\.\d+)?)", txt):
+            h, mm, ss, d = m.groups()
+            spans.append((int(h) * 3600 + int(mm) * 60 + float(ss), float(d)))
+        return spans
+
+    def _violations(txt):
+        spans = _spans(txt)
+        dur_bad = [round(d) for _, d in spans if d < min_sec or d > max_sec]
+        ov = []
+        srt = sorted(spans)
+        for (s1, d1), (s2, _) in zip(srt, srt[1:]):
+            if s2 < s1 + d1:
+                ov.append((round(s1), round(s1 + d1), round(s2)))
+        return dur_bad, ov
+
+    for attempt in (1, 2):
+        dur_bad, ov = _violations(bat_content)
+        if (not dur_bad and not ov) or attempt == 2:
+            break
+        issues = []
+        if dur_bad:
+            issues.append(f"durasi di luar {durasi_min}-{durasi_max} mnt: {dur_bad}s")
+        if ov:
+            issues.append(f"clip TUMPANG TINDIH (prev_start,prev_end,next_start): {ov}")
+        log(f"  ⚠️  {'; '.join(issues)} → minta AI perbaiki")
+        fix_msg = (
+            "ATURAN DILANGGAR — " + "; ".join(issues) + ". "
+            f"Tulis ULANG hanya blok .bat. WAJIB: (1) tiap clip {min_sec}-{max_sec} detik; "
+            "(2) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu; "
+            "(3) boundary di akhir kalimat utuh, jangan potong di tengah pembahasan. "
+            "Jangan bikin semua clip berdurasi sama; sesuaikan dengan panjang topik."
+        )
+        try:
+            fix_payload = {
+                "model": MODEL_ID,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": "Berikut adalah transkripnya:\n\n" + full_transcript},
+                    {"role": "assistant", "content": ai_response},
+                    {"role": "user", "content": fix_msg},
+                ],
+                "temperature": 0.2,
+            }
+            if AI_REASONING:
+                fix_payload["reasoning_effort"] = AI_REASONING
+            r2 = requests.post(DEEPSEEK_URL, headers=headers, json=fix_payload, timeout=300)
+            if not r2.ok:
+                log(f"  ⚠️  Re-ask gagal (HTTP {r2.status_code})")
+                break
+            ai_response = r2.json()["choices"][0]["message"]["content"]
+            bat_content = _extract_bat(ai_response)
+            log(f"  🔁 AI memperbaiki output ({len(ai_response)} chars)")
+        except Exception as e:
+            log(f"  ⚠️  Re-ask gagal: {str(e)[:120]}")
+            break
+
+    dur_bad, ov = _violations(bat_content)
+    if dur_bad or ov:
+        log(f"  ⚠️  Masih ada pelanggaran (durasi={dur_bad}, overlap={ov}) — dibersihkan di Tahap 3")
 
     log_path = analisa_dir / "potong_log_alasan.md"
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(ai_response)
-
-    bat_match = re.search(
-        r"```(?:bat|batch|cmd)?\n(.*?@echo off.*?)```",
-        ai_response, re.DOTALL | re.IGNORECASE
-    )
-    if bat_match:
-        bat_content = bat_match.group(1).strip()
-    elif "@echo off" in ai_response:
-        bat_content = ai_response[ai_response.find("@echo off"):].strip()
-    else:
-        log("  ⚠️  Format .bat tidak ditemukan, simpan raw output")
-        bat_content = ai_response
 
     bat_path = analisa_dir / "potong.bat"
     with open(bat_path, "w", encoding="utf-8") as f:
@@ -507,7 +581,7 @@ def run_single_ffmpeg(cmd, idx, total):
 
 
 # ─── TAHAP 3: Potong Audio (OPTIMASI A: Parallel FFmpeg) ──────
-def tahap3(audio_path, bat_path, output_dir):
+def tahap3(audio_path, bat_path, output_dir, durasi_min=None, durasi_max=None):
     log("═══ TAHAP 3: Potong Audio ═══")
     hasil_dir = output_dir / "3_hasil_potong"
     hasil_dir.mkdir(parents=True, exist_ok=True)
@@ -516,6 +590,46 @@ def tahap3(audio_path, bat_path, output_dir):
         old_file.unlink()
 
     commands = parse_ffmpeg_commands(bat_path, audio_path, hasil_dir)
+
+    # ── Pengaman deterministik: urutkan per waktu, buang clip di luar rentang durasi & yang overlap ──
+    def _c_start(cmd):
+        if "-ss" in cmd:
+            raw = cmd[cmd.index("-ss") + 1]
+            try:
+                p = raw.split(":")
+                if len(p) == 3:
+                    return int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])
+                return float(raw)
+            except (ValueError, IndexError):
+                return None
+        return None
+
+    def _c_dur(cmd):
+        if "-t" in cmd:
+            try:
+                return float(cmd[cmd.index("-t") + 1])
+            except (ValueError, IndexError):
+                return None
+        return None
+
+    timed = [(c, _c_start(c), _c_dur(c)) for c in commands]
+    timed.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else 0.0))
+
+    kept = []
+    last_end = None
+    for cmd, s, d in timed:
+        name = os.path.basename(cmd[-1])
+        if durasi_min and durasi_max and d is not None and (d < durasi_min * 60 or d > durasi_max * 60):
+            log(f"  ⏭️  Skip {name} ({d:.0f}s, di luar {durasi_min}-{durasi_max} mnt)")
+            continue
+        if s is not None and d is not None and last_end is not None and s < last_end:
+            log(f"  ⏭️  Skip {name} (overlap: start {s:.0f}s < end sebelumnya {last_end:.0f}s)")
+            continue
+        kept.append(cmd)
+        if s is not None and d is not None:
+            last_end = s + d if last_end is None else max(last_end, s + d)
+
+    commands = kept
     total = len(commands)
 
     if total == 0:
@@ -560,10 +674,10 @@ def main():
 
     log("Mendapatkan judul video...")
     title = run_subprocess(
-        [YT_DLP, "--get-title", args.url],
+        [YT_DLP, "--js-runtimes", "node", "--get-title", args.url],
         desc="ambil judul"
     ).strip()
-    folder_name = f"{datetime.now().strftime('%Y-%m-%d')}_{sanitize(title)}"
+    folder_name = f"{datetime.now().strftime('%d-%m-%Y')}_{sanitize(title)}"
     output_dir = BASE_DIR / "output" / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
     log(f"📁 Output: {output_dir}\n")
@@ -577,7 +691,7 @@ def main():
         print()
         bat_path = tahap2(transcript_path, output_dir, jumlah_clip, args.min, args.max, args.skip_start)
         print()
-        tahap3(audio_path, bat_path, output_dir)
+        tahap3(audio_path, bat_path, output_dir, args.min, args.max)
         print()
         # ── Rename & Metadata: format title case + tambah nama ustadz ──
         hasil_dir = output_dir / "3_hasil_potong"
@@ -624,7 +738,6 @@ def main():
                 ustadz_full = re.sub(r'^Ust\.?\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
                 if not re.match(r'Ustadz?\.?\s', ustadz_full, re.IGNORECASE):
                     ustadz_full = f"Ustadz {ustadz_full}"
-                ustadz_full = bersihkan_gelar(ustadz_full)
                 log(f"  👤 Ustadz: {ustadz_full}")
 
             # ── Album: hapus nama ustadz dari judul ──
@@ -643,6 +756,15 @@ def main():
                 meta_album = album_clean.strip()
             else:
                 meta_album = title.strip()
+            # Bersihkan sisa gelar akademik (mis. "M.Sc.") yang tertinggal setelah nama ustadz dihapus
+            meta_album = re.sub(
+                r'(?<![\w.])(?:M\.?\s*Sc\.?|M\.?\s*A\.?|M\.?\s*Ag\.?|M\.?\s*Pd\.?|M\.?\s*Hum\.?|M\.?\s*E\.?|Lc\.?|Ph\.?\s*D\.?|S\.?\s*Ag\.?|S\.?\s*Pd\.?|S\.?\s*Kom\.?|S\.?\s*T\.?|S\.?\s*S\.?)(?=\s|$|[-–—|,;])',
+                '', meta_album, flags=re.IGNORECASE
+            )
+            # Rapikan separator ganda jadi satu, lalu spasi berlebih
+            meta_album = re.sub(r'\s*[|–—]\s*[|–—]\s*', ' | ', meta_album)
+            meta_album = re.sub(r'\s{2,}', ' ', meta_album)
+            meta_album = meta_album.strip(' |–—,;')
 
             for f in clip_files:
                 # Ekstrak judul clip dari nama file asli: "01_metode-menghafal-al-quran"
