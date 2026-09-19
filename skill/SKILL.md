@@ -1,8 +1,11 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (deepseek-v4.1-flash), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.20.0
+version: 1.21.0
 # CHANGES:
+# 1.21.0 - bersihkan_gelar() di kedua pipeline.py: gelar akademik (Dr, Lc, MA, M.Sc,
+#          Ph.D, Prof, KH, S.Pd, dll) otomatis dihapus dari nama ustadz
+#       - Pola gelar wajib dipisah spasi/koma dari nama (biar "Khalid" tidak kena "KH")
 # 1.20.0 - Kebijakan clip: default 5 (fixed, BUKAN auto); boleh < 5 kalau materi tak cukup
 #       - Prompt: wajib konteks utuh (topik dari awal sampai tuntas) + tes akhir per clip
 #       - Diterapkan ke KEDUA pipeline.py (automate insert & automate insert-video)
