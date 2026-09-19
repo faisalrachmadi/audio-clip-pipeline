@@ -1,8 +1,11 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (deepseek-v4.1-flash), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.19.0
+version: 1.20.0
 # CHANGES:
+# 1.20.0 - Kebijakan clip: default 5 (fixed, BUKAN auto); boleh < 5 kalau materi tak cukup
+#       - Prompt: wajib konteks utuh (topik dari awal sampai tuntas) + tes akhir per clip
+#       - Diterapkan ke KEDUA pipeline.py (automate insert & automate insert-video)
 # 1.19.0 - Model Tahap 2: OpenCode Go mimo-v2.5 -> deepseek-v4.1-flash
 #       - WAJIB header `x-opencode-session` (OpenCode Go menolak tanpa ini sejak 2026-09-05, HTTP 400 MissingSessionID)
 #       - Request API harus SEQUENTIAL (paralel -> HTTP 500 Internal server error)
@@ -51,18 +54,20 @@ Pipeline 3 tahap dari link YouTube sampai clip MP3 siap pakai sebagai insert rad
 
 User kirim link YouTube. **Cukup URL aja** — pipeline otomatis:
 1. Cek ketersediaan transcript
-2. Hitung jumlah clip dari durasi video (÷4, skip 5 awal + 5 akhir)
-3. Proses sampai clip MP4 (talkshow) atau MP3 (kajian) jadi
+2. Ambil **5 clip** (default tetap — bukan auto)
+3. Proses sampai clip MP3 (kajian/insert radio) atau MP4 (talkshow) jadi
 
 Override opsional: `--clips N`, `--min M`, `--max M`, `--skip-start M`
 
 ## Default
 
-**Sekarang default video (MP4) untuk talkshow radio:**
-- **Clip:** auto (÷4 dari durasi efektif)
-- **Durasi:** 1-2 menit (talkshow), atau **4-6 menit** kalau explicit `--min 4 --max 6` (kajian)
-- **Output:** `.mp4` dengan video stream copy (`-c:v copy`) + audio loudnorm
-- **AI Prompt:** talkshow radio — hindari break/iklan, cari segmen engaging
+**KEBIJAKAN CLIP (berlaku untuk insert radio/kajian — sudah default di pipeline):**
+- **Clip: 5 (fixed, bukan auto).** `--clips` default = 5. Jangan pakai mode auto lagi.
+- **Kualitas & keutuhan dulu, bukan jumlah.** Kalau transcript tidak punya cukup topik utuh yang bermutu, **LEBIH BAIK hasil < 5 clip**. Jangan paksa 5 dengan memotong konteks.
+- **Durasi:** **4-6 menit** (`--min 4 --max 6`), output MP3 (`--audio`).
+- **KONTEKS WAJIB UTUH (prioritas tertinggi):** tiap clip = SATU topik dari awal sampai tuntas — mulai saat topik dibuka, berakhir setelah topik selesai. Jangan potong di tengah kalimat/cerita/alur. Kalau satu topik > `--max`, cari SUB-TOPIK yang utuh di dalamnya atau pilih topik lain — jangan potong asal di tengah.
+- **AI Prompt** sudah memuat aturan ini (section "ATURAN KONTEKS (WAJIB)" + tes akhir per clip) — hindari opening/adzan/iklan/closing.
+- **Verifikasi hasil:** tiap clip wajib punya kutipan "Awal topik" & "Akhir topik" di `2_analisa/potong_log_alasan.md` — itu tanda boundary-nya topik utuh, bukan potongan waktu asal.
 
 ### Perubahan dari versi MP3 sebelumnya
 
@@ -76,9 +81,14 @@ Override opsional: `--clips N`, `--min M`, `--max M`, `--skip-start M`
 | Metadata | ID3 (mp3) | MP4 metadata + `-movflags +faststart` |
 | Bug fix | `download_audio()` undefined! | Pakai `download_video()` yg sudah ada |
 
-Untuk konten KAJIAN (ceramah), gunakan parameter eksplisit:
+Perintah **standar insert radio/kajian** (clip sudah default 5):
 ```bash
-python pipeline.py <URL> --min 4 --max 6 --clips 5
+python pipeline.py <URL> --audio --min 4 --max 6
+```
+
+Untuk talkshow (MP4):
+```bash
+python pipeline.py <URL>
 ```
 
 ## Execution
@@ -111,7 +121,7 @@ Setelah tahap 2 (AI) selesai, tahap 3 (FFmpeg) tetap paralel per clip — ini am
 | Arg | Default | Deskripsi |
 |-----|---------|-----------|
 | `URL` | (required) | Link YouTube |
-| `--clips N` | 0 (auto) | Jumlah clip (0=otomatis dari durasi video) |
+| `--clips N` | 5 | Jumlah clip (default 5; isi 0 kalau mau mode auto berdasarkan durasi) |
 | `--min M` | 1 | Durasi minimal per clip menit (default: 1 utk talkshow) |
 | `--max M` | 2 | Durasi maksimal per clip menit (default: 2 utk talkshow) |
 | `--skip-start N` | 0 | Skip N menit awal video (berguna kalau intro panjang/sebelum konten dimulai) |

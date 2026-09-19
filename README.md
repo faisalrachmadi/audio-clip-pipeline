@@ -92,11 +92,19 @@ hermes skill add insert-radio ./skill/SKILL.md
 | Arg | Default | Deskripsi |
 |-----|---------|-----------|
 | `URL` | (wajib) | Link YouTube |
-| `--clips N` | 0 (auto) | Jumlah clip (0=otomatis dari durasi) |
+| `--clips N` | 5 | Jumlah clip (default **5**; isi `0` kalau mau mode auto dari durasi) |
 | `--min M` | 4 | Durasi minimal per clip (menit) |
 | `--max M` | 6 | Durasi maksimal per clip (menit) |
 | `--skip-start N` | 0 | Skip N menit awal (untuk opening panjang) |
 | `--audio` | false | Audio-only mode (MP3 output) |
+
+## Kebijakan Clip (penting)
+
+- **Default 5 clip** (`--clips` default = 5), bukan auto.
+- **Keutuhan konteks > jumlah.** Tiap clip WAJIB satu topik **utuh** — mulai saat topik dibuka, berakhir setelah topik tuntas. Tidak boleh potong di tengah kalimat/cerita/alur.
+- Kalau transcript tidak punya cukup topik utuh yang bermutu, **lebih baik hasilnya kurang dari 5** — jangan mengejar jumlah dengan memotong konteks.
+- Kalau satu topik lebih panjang dari `--max`, cari **sub-topik** yang utuh di dalamnya (punya pembuka & penutup sendiri) atau pilih topik lain yang muat.
+- AI diminta menuliskan kutipan **"Awal topik"** & **"Akhir topik"** per clip di `2_analisa/potong_log_alasan.md` — pakai itu untuk memverifikasi boundary-nya benar-benar utuh.
 
 ## Panduan AI (Prompt Rules)
 
