@@ -57,6 +57,24 @@ def sanitize(text):
     return text.strip(" .-,()").rstrip(" .-,()")[:100].rstrip(" .-,()")
 
 
+def bersihkan_gelar(nama):
+    """Hapus gelar akademik di depan/belakang nama ustadz (Dr, Lc, MA, M.Sc, Ph.D, dll)."""
+    deg = (r"(?:Dr|Drs|Dra|MA|M\.A|M\.Ag|M\.Pd|M\.Sc|M\.Si|MM|MBA|MPd|MAg|Lc|L\.c"
+           r"|PhD|Ph\.D|S\.Pd|S\.Ag|S\.H|S\.E|S\.Sos|S\.T|S\.Kom|S\.Fil|SPd|SAg"
+           r"|BA|ST|SE|SH|Prof|KH|Hj)")
+    s = nama
+    while True:
+        prev = s
+        # gelar di belakang - wajib ada pemisah (spasi/koma)
+        s = re.sub(r"(?:\s*,\s*|\s+)" + deg + r"\.?\s*$", "", s, flags=re.IGNORECASE).strip()
+        # gelar di depan setelah "Ustadz" - wajib pemisah, biar "Khalid" tidak kena "KH"
+        s = re.sub(r"^Ustadz(?:\s*,\s*|\s+)(?:(?:" + deg + r")\.?(?:\s*,\s*|\s+))+",
+                   "Ustadz ", s, flags=re.IGNORECASE).strip()
+        if s == prev:
+            break
+    return s.rstrip("., ").strip()
+
+
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(description="YouTube → Clip MP3 Pipeline")
@@ -606,6 +624,7 @@ def main():
                 ustadz_full = re.sub(r'^Ust\.?\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
                 if not re.match(r'Ustadz?\.?\s', ustadz_full, re.IGNORECASE):
                     ustadz_full = f"Ustadz {ustadz_full}"
+                ustadz_full = bersihkan_gelar(ustadz_full)
                 log(f"  👤 Ustadz: {ustadz_full}")
 
             # ── Album: hapus nama ustadz dari judul ──
