@@ -1,8 +1,11 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.29.0
+version: 1.30.0
 # Changelog lengkap: references/changelog.md
+# 1.30.0 - KONSEP durasi: durasi MENGIKUTI KONTEKS (panjang topik), bukan target. Rentang --min/--max = lazim,
+#          bukan pagar keras. Batas keras HARD_MIN/HARD_MAX (default 2.5-10 mnt) untuk buang yang ekstrem saja.
+#          Guard overlap beri toleransi 1s (boundary bersinggungan bukan overlap). Hapus aturan "WAJIB BERAGAM".
 # 1.29.0 - FIX durasi seragam 5:00: prompt + pesan re-ask kini larang durasi seragam/angka bulat,
 #          validasi deteksi durasi seragam (>=3 clip sama) -> re-ask. Root cause: re-ask menyebut rentang
 #          dalam detik membuat AI mengunci ke 300s. Hasil uji: 281/308/280/332/287s (5 nilai unik).
@@ -62,6 +65,8 @@ python pipeline.py <URL> --min 4 --max 6 --clips 5
 > **⚠️ Catatan server Linux ini (2026-09-14, diperbarui 2026-09-19):** Pipeline yang terpasang di `/home/faisal/.openclaw/workspace/insert-radio/` adalah **varian AUDIO/MP3 (kajian)** — download `yt-dlp -x` → MP3, output `.mp3`, tanpa flag `--audio`, default `--min 4 --max 6`. Varian MP4/talkshow yang dijelaskan di bagian "Default" di atas TIDAK ada di server ini (hanya di mesin Windows).
 >
 > **Perubahan v1.26.0 (rekonsiliasi dari branch `main`):** `--clips` default **5 (fixed, bukan auto)**; prompt wajib **KONTEKS UTUH** (topik dari awal sampai tuntas, cari sub-topik kalau > max, **TES AKHIR** per clip, prioritas: keutuhan konteks > jumlah clip > durasi); `bersihkan_gelar()` otomatis hapus gelar akademik dari nama ustadz.
+>
+> **Perubahan v1.30.0 (durasi mengikuti konteks):** `--min/--max` = panjang **lazim**, bukan pagar keras. Durasi tiap clip = jarak dari topik DIBUKA sampai TUNTAS; boleh keluar dari 4–6 menit kalau topiknya memang begitu. Yang dibuang hanya durasi **ekstrem**: `HARD_MIN_SEC`/`HARD_MAX_SEC` (env `HARD_MIN_MINUTES=2.5`, `HARD_MAX_MINUTES=10`). Guard overlap bertoleransi 1 detik (boundary bersinggungan ≠ overlap).
 
 ## Execution
 
@@ -142,13 +147,13 @@ Gunakan ini untuk melaporkan progres (progress card + pesan singkat) tiap run. T
 - [ ] Extract transcript → `[start - dur] text`
 - [ ] Filter `--skip-start` (bila diisi)
 - [ ] Kirim ke provider aktif (`reasoning_effort=none`)
-- [ ] Validasi durasi (4–6 mnt) **+ overlap** → re-ask AI 1× bila melanggar
+- [ ] Validasi **durasi ekstrem (HARD_MIN/HARD_MAX) + overlap (toleransi 1s)** → re-ask AI 1× bila melanggar
 - [ ] Simpan `2_analisa/potong_log_alasan.md`
 - [ ] Simpan `2_analisa/potong.bat` (blok ffmpeg)
 
 ### T3 — Potong Audio
 - [ ] Parse `.bat` → daftar perintah ffmpeg
-- [ ] Guard: sort per waktu + buang clip di luar durasi & yang overlap
+- [ ] Guard: sort per waktu + buang clip durasi ekstrem & yang overlap nyata
 - [ ] Eksekusi paralel (ThreadPoolExecutor)
 - [ ] Verifikasi semua file ada & playable (`ffprobe`)
 

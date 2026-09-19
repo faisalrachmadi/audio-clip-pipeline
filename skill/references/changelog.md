@@ -1,6 +1,11 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.30.0 - KONSEP durasi diperbaiki: durasi MENGIKUTI KONTEKS, bukan target. Rentang --min/--max kini LUNAK
+#          (panjang lazim); batas keras HARD_MIN_SEC/HARD_MAX_SEC (env HARD_MIN_MINUTES=2.5, HARD_MAX_MINUTES=10)
+#          hanya membuang durasi ekstrem. Aturan "WAJIB BERAGAM" dihapus (itu gejala, bukan tujuan).
+#          Guard overlap diberi toleransi 1s: boundary bersinggungan (selisih <1s) BUKAN overlap.
+#          Bukti run: AI hasilkan 338/166/297/527/444s — mengikuti panjang topik (bukan seragam 300s).
 # 1.29.0 - FIX "durasi seragam 5:00": akar masalah = pesan re-ask menyebut rentang dalam DETIK sehingga AI
 #          mengunci ke 300s (batas aman). Perbaikan: (a) prompt tegas "durasi = jarak topik, dilarang seragam &
 #          angka bulat", (b) pesan re-ask tulis ulang boundary, bukan sekadar angka, (c) validasi baru deteksi

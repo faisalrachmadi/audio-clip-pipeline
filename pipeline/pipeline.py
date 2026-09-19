@@ -40,6 +40,11 @@ if not FFMPEG:
 
 APIFY_ACTOR = "https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items"
 
+# Batas EKSTREM durasi clip (detik). Rentang --min/--max bersifat LUNAK (mengikuti panjang topik);
+# hanya nilai ekstrem di luar batas ini yang dianggap salah & dibuang/diperbaiki.
+HARD_MIN_SEC = int(float(os.getenv("HARD_MIN_MINUTES", "2.5")) * 60)
+HARD_MAX_SEC = int(float(os.getenv("HARD_MAX_MINUTES", "10")) * 60)
+
 # ─── Provider AI (dipilih via env AI_PROVIDER) ─────────────────
 # "openrouter" (default) atau "opencode". Kunci dibaca dari .env.
 AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter").strip().lower()
@@ -349,8 +354,8 @@ Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus di
 
 ## ATURAN SELEKSI CLIP
 1. **CARI TRANGSISI TOPIK DULU.** Baca teks transcript, identifikasi dimana pembahasan berganti (misal: pembicara selesai bahas topik A lalu bilang "selanjutnya..." / "berikutnya..." / "adapun..." / jeda panjang). Clip boundary = batas transisi topik.
-2. **DURASI: {durasi_min}-{durasi_max} menit adalah PAGAR, bukan target.** JANGAN PERNAH melebihi {durasi_max} menit. Durasi tiap clip = JARAK dari awal topik sampai topik itu tuntas — jadi **setiap clip hampir pasti berbeda**. Kalau satu topik lebih panjang dari {durasi_max} menit, cari SUB-TOPIK utuh di dalamnya atau pilih topik lain yang muat — jangan potong di tengah alur.
-3. **DURASI WAJIB BERAGAM.** Dilarang membuat semua clip berdurasi sama. Dilarang memakai angka bulat (240/300/360 detik atau 4:00/5:00/6:00). Pakai nilai detik desimal hasil boundary transcript (mis. 294.7, 331.2). Kalau dua clip kebetulan sama panjang, itu kecurigaan bahwa boundary belum mengikuti topik.
+2. **DURASI MENGIKUTI KONTEKS — bukan sebaliknya.** Boundary clip = dari topik itu DIBUKA sampai topik itu TUNTAS. Durasi adalah AKIBAT panjang topik, bukan angka yang ditentukan lebih dulu. Rentang {durasi_min}-{durasi_max} menit = panjang yang UMUM/lazim, **bukan patokan wajib**: kalau satu topik utuh memang butuh 7 menit, ambil 7 menit — JANGAN dipotong atau dipaksa jadi 5 menit hanya supaya masuk rentang.
+3. **JANGAN potong topik demi durasi.** Dilarang memotong di tengah pembahasan. Pakai timestamp presisi dari boundary kalimat transcript. Kalau satu topik benar-benar sangat panjang (> ~10 menit), baru cari SUB-TOPIK utuh yang punya pembuka & penutup sendiri.
 4. **HINDARI clip di bawah 3 menit** — terlalu pendek untuk konten mandiri. Gabungkan dengan topik kecil lain yang berdekatan, atau skip.
 5. **Target {jumlah_clip} clip**, tapi utamakan MUTU & KEUTUHAN materi. Kalau transcript tidak punya cukup topik utuh yang bermutu, **LEBIH BAIK menghasilkan KURANG dari {jumlah_clip}** — jangan mengejar jumlah dengan memotong konteks.
 6. **HINDARI bagian OPENING.** Jangan pilih clip yang mengandung salam pembuka (Assalamu'alaikum), basmalah (Bismillahirrahmanirrahim), puji-pujian (Alhamdulillah, hamdalah), atau perkenalan pembicara/pembawa acara. Clip harus dari ISI KAJIAN inti.
@@ -364,8 +369,8 @@ Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus di
 - **Awal clip:** kalimat pertama topik yang bisa dipahami tanpa konteks sebelumnya.
 - **Akhir clip:** kalimat TERAKHIR sebelum pembicara pindah ke topik baru. Cari di transcript: kata-kata penutup topik (kesimpulan, rangkuman) atau frasa transisi ("selanjutnya", "berikutnya", "adapun", "kita lanjut", "selesai", dll).
 - **TIDAK BOLEH** potong di tengah kalimat, di tengah paragraf, atau saat pembicara masih menjelaskan satu poin.
-- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun.
-- **Kalau satu topik utuh lebih panjang dari {durasi_max} menit:** JANGAN potong asal di tengah — cari **SUB-TOPIK yang utuh** di dalamnya (yang punya pembuka & penutup sendiri), atau pilih topik lain yang muat. Yang dilarang: memotong di tengah alur penjelasan hanya demi durasi.
+- **Durasi = konsekuensi dari topik.** {durasi_min}-{durasi_max} menit adalah panjang yang lazim, bukan batas keras. Topik utuh yang wajar berjalan lebih panjang dari {durasi_max} menit **BOLEH diambil apa adanya** — jangan dipotong demi masuk rentang.
+- **Yang dilarang:** memotong di tengah alur penjelasan hanya demi mengejar durasi, atau memaksa semua clip sama panjang. Kalau satu topik ekstrem (> ~10 menit), baru cari sub-topik utuh di dalamnya.
 - **TES AKHIR (wajib dilakukan untuk setiap clip):** bayangkan clip diputar berdiri sendiri. Apakah pendengar paham dari awal sampai akhir, tanpa merasa ada bagian yang menggantung atau hilang? Kalau tidak, GESER boundary-nya sampai utuh.
 - **PRIORITAS:** keutuhan konteks > jumlah clip > durasi maksimum.
 
@@ -459,50 +464,33 @@ Aturan nama file:
 
     def _violations(txt):
         spans = _spans(txt)
-        dur_bad = [round(d) for _, d in spans if d < min_sec or d > max_sec]
+        # Rentang --min/--max itu LUNAK (mengikuti topik). Hanya nilai EKSTREM yang dianggap pelanggaran.
+        dur_bad = [round(d) for _, d in spans if d < HARD_MIN_SEC or d > HARD_MAX_SEC]
         ov = []
         srt = sorted(spans)
         for (s1, d1), (s2, _) in zip(srt, srt[1:]):
-            if s2 < s1 + d1:
+            if s2 < s1 + d1 - 1.0:  # toleransi 1s: boundary bersinggungan bukan overlap
                 ov.append((round(s1), round(s1 + d1), round(s2)))
-        # Durasi seragam / angka bulat -> tanda AI memaksa durasi, bukan mengikuti topik
-        uni = []
-        vals = [round(d, 1) for _, d in spans]
-        if len(vals) >= 3:
-            best = max(set(vals), key=vals.count)
-            n = vals.count(best)
-            if n >= max(3, len(vals) - 1):
-                uni = [best, n]
-        return dur_bad, ov, uni
+        return dur_bad, ov
 
     for attempt in (1, 2):
-        dur_bad, ov, uni = _violations(bat_content)
-        if (not dur_bad and not ov and not uni) or attempt == 2:
+        dur_bad, ov = _violations(bat_content)
+        if (not dur_bad and not ov) or attempt == 2:
             break
         issues = []
         if dur_bad:
-            issues.append(f"durasi di luar {durasi_min}-{durasi_max} mnt: {dur_bad}s")
+            issues.append(f"durasi EKSTREM: {dur_bad}s (batas wajar {HARD_MIN_SEC//60}-{HARD_MAX_SEC//60} mnt)")
         if ov:
             issues.append(f"clip TUMPANG TINDIH (prev_start,prev_end,next_start): {ov}")
-        if uni:
-            issues.append(f"durasi SERAGAM: {uni[1]} clip sama-sama {uni[0]}s (harus mengikuti panjang topik)")
         log(f"  ⚠️  {'; '.join(issues)} → minta AI perbaiki")
         fix_msg = (
-            "ATURAN DILANGGAR — " + "; ".join(issues) + ". "
-            f"Tulis ULANG hanya blok .bat. WAJIB: (1) tiap clip {min_sec}-{max_sec} detik; "
-            "(2) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu; "
-            "(3) boundary di akhir kalimat utuh, jangan potong di tengah pembahasan. "
-            "Jangan bikin semua clip berdurasi sama; sesuaikan dengan panjang topik."
-        )
-        # ── Anti-seragam: durasi harus berasal dari boundary topik, bukan angka aman di tengah rentang ──
-        fix_msg = (
-            "ATURAN DILANGGAR — " + "; ".join(issues) + ". "
-            "Perbaiki blok .bat SAJA, tapi HITUNG ULANG boundary dari transcript.\n"
-            f"(1) Durasi = jarak awal-topik sampai topik tuntas. Rentang {min_sec}-{max_sec} detik itu PAGAR, bukan target.\n"
-            "(2) DURASI WAJIB BERAGAM antar clip. DILARANG semua clip berdurasi sama. DILARANG angka bulat "
-            "(240/300/360 atau 4:00/5:00/6:00) — pakai nilai desimal dari boundary kalimat transcript (mis. 287.4, 331.9).\n"
-            "(3) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu.\n"
-            "(4) Boundary di akhir kalimat utuh, jangan potong di tengah pembahasan."
+            "PERBAIKAN — " + "; ".join(issues) + ".\n"
+            "Perbaiki blok .bat SAJA. Boundary HARUS dari transkrip (topik utuh), bukan angka yang dipilih dulu.\n"
+            f"(1) Durasi = jarak awal-topik sampai topik itu tuntas. {min_sec}-{max_sec} detik itu panjang LAZIM, "
+            "bukan patokan wajib — kalau topiknya lebih panjang, biarkan lebih panjang (jangan dipotong).\n"
+            f"(2) Hanya durasi EKSTREM (< {HARD_MIN_SEC} atau > {HARD_MAX_SEC} detik) yang perlu diubah, dan hanya "
+            "dengan memilih topik/sub-topik lain yang utuh — BUKAN dengan memotong di tengah pembahasan.\n"
+            "(3) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu."
         )
         try:
             fix_payload = {
@@ -528,11 +516,9 @@ Aturan nama file:
             log(f"  ⚠️  Re-ask gagal: {str(e)[:120]}")
             break
 
-    dur_bad, ov, uni = _violations(bat_content)
+    dur_bad, ov = _violations(bat_content)
     if dur_bad or ov:
-        log(f"  ⚠️  Masih ada pelanggaran (durasi={dur_bad}, overlap={ov}) — dibersihkan di Tahap 3")
-    if uni:
-        log(f"  ⚠️  Durasi seragam tersisa ({uni[1]} clip = {uni[0]}s) — topik mungkin belum dipisah natural")
+        log(f"  ⚠️  Masih ada pelanggaran (durasi ekstrem={dur_bad}, overlap={ov}) — dibersihkan di Tahap 3")
 
     log_path = analisa_dir / "potong_log_alasan.md"
     with open(log_path, "w", encoding="utf-8") as f:
@@ -656,11 +642,11 @@ def tahap3(audio_path, bat_path, output_dir, durasi_min=None, durasi_max=None):
     last_end = None
     for cmd, s, d in timed:
         name = os.path.basename(cmd[-1])
-        if durasi_min and durasi_max and d is not None and (d < durasi_min * 60 or d > durasi_max * 60):
-            log(f"  ⏭️  Skip {name} ({d:.0f}s, di luar {durasi_min}-{durasi_max} mnt)")
+        if d is not None and (d < HARD_MIN_SEC or d > HARD_MAX_SEC):
+            log(f"  ⏭️  Skip {name} ({d:.0f}s, ekstrem — di luar {HARD_MIN_SEC//60}-{HARD_MAX_SEC//60} mnt)")
             continue
-        if s is not None and d is not None and last_end is not None and s < last_end:
-            log(f"  ⏭️  Skip {name} (overlap: start {s:.0f}s < end sebelumnya {last_end:.0f}s)")
+        if s is not None and d is not None and last_end is not None and s < last_end - 1.0:
+            log(f"  ⏭️  Skip {name} (overlap nyata: start {s:.0f}s < end sebelumnya {last_end:.0f}s)")
             continue
         kept.append(cmd)
         if s is not None and d is not None:
