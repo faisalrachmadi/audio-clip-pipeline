@@ -70,11 +70,29 @@ def sanitize(text):
     return text.strip(" .-,()").rstrip(" .-,()")[:100].rstrip(" .-,()")
 
 
+def bersihkan_gelar(nama):
+    """Hapus gelar akademik di depan/belakang nama ustadz (Dr, Lc, MA, M.Sc, Ph.D, dll)."""
+    deg = (r"(?:Dr|Drs|Dra|MA|M\.A|M\.Ag|M\.Pd|M\.Sc|M\.Si|MM|MBA|MPd|MAg|Lc|L\.c"
+           r"|PhD|Ph\.D|S\.Pd|S\.Ag|S\.H|S\.E|S\.Sos|S\.T|S\.Kom|S\.Fil|SPd|SAg"
+           r"|BA|ST|SE|SH|Prof|KH|Hj)")
+    s = nama
+    while True:
+        prev = s
+        # gelar di belakang - wajib ada pemisah (spasi/koma)
+        s = re.sub(r"(?:\s*,\s*|\s+)" + deg + r"\.?\s*$", "", s, flags=re.IGNORECASE).strip()
+        # gelar di depan setelah "Ustadz" - wajib pemisah, biar "Khalid" tidak kena "KH"
+        s = re.sub(r"^Ustadz(?:\s*,\s*|\s+)(?:(?:" + deg + r")\.?(?:\s*,\s*|\s+))+",
+                   "Ustadz ", s, flags=re.IGNORECASE).strip()
+        if s == prev:
+            break
+    return s.rstrip("., ").strip()
+
+
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(description="YouTube → Clip MP3 Pipeline")
     p.add_argument("url", help="URL YouTube")
-    p.add_argument("--clips", type=int, default=0, help="Jumlah clip (0=auto berdasarkan durasi video, default: 0)")
+    p.add_argument("--clips", type=int, default=5, help="Jumlah clip (0=auto berdasarkan durasi video, default: 5)")
     p.add_argument("--min", type=int, default=4, help="Durasi minimal per clip menit (default: 4)")
     p.add_argument("--max", type=int, default=6, help="Durasi maksimal per clip menit (default: 6)")
     p.add_argument("--skip-start", type=int, default=0, help="Skip N menit awal (default: 0)")
@@ -311,16 +329,16 @@ Cara membaca konten:
 Baca transcript dengan saksama. Tugasmu:
 1. **Identifikasi transisi topik** — baca konten teks, cari di mana pembicara selesai satu bahasan dan pindah ke bahasan baru.
 2. **Pilih N topik terbaik** — pilih yang paling berdampak, informatif, atau menarik sebagai clip mandiri.
-3. **Tentukan boundary clip = awal & akhir satu topik utuh.** Jangan potong di tengah topik.
+3. **Tentukan boundary clip = awal & akhir satu topik utuh.** Clip WAJIB mulai dari saat topik itu DIBUKA dan berakhir setelah topik itu TUNTAS dibahas. Jangan potong di tengah topik, di tengah kalimat, atau di tengah alur penjelasan.
 
 Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus dipaksakan seragam.
 
 ## ATURAN SELEKSI CLIP
 1. **CARI TRANGSISI TOPIK DULU.** Baca teks transcript, identifikasi dimana pembahasan berganti (misal: pembicara selesai bahas topik A lalu bilang "selanjutnya..." / "berikutnya..." / "adapun..." / jeda panjang). Clip boundary = batas transisi topik.
-2. **DURASI WAJIB antara {durasi_min}-{durasi_max} menit.** JANGAN PERNAH melebihi {durasi_max} menit. Variasi durasi bagus, tapi tetap dalam batas. Jika satu topik terlalu panjang, pilih BAGIAN TERBAIK dari topik itu (jangan seluruhnya).
+2. **DURASI WAJIB antara {durasi_min}-{durasi_max} menit.** JANGAN PERNAH melebihi {durasi_max} menit. Variasi durasi bagus, tapi tetap dalam batas. Kalau satu topik lebih panjang dari {durasi_max} menit, cari SUB-TOPIK utuh di dalamnya atau pilih topik lain yang muat — jangan potong di tengah alur.
 3. **HINDARI clip di bawah 3 menit** — terlalu pendek untuk konten mandiri. Gabungkan dengan topik kecil lain yang berdekatan, atau skip.
 4. **JANGAN potong per menit bulet** (jangan `00:05:00`). Clip boundary HARUS di akhir satu kalimat/paragraf utuh dari transcript.
-5. Target sekitar {jumlah_clip} clip, jangan maksain — prioritas selesainya satu pembahasan utuh.
+5. **Target {jumlah_clip} clip**, tapi utamakan MUTU & KEUTUHAN materi. Kalau transcript tidak punya cukup topik utuh yang bermutu, **LEBIH BAIK menghasilkan KURANG dari {jumlah_clip}** — jangan mengejar jumlah dengan memotong konteks.
 6. **HINDARI bagian OPENING.** Jangan pilih clip yang mengandung salam pembuka (Assalamu'alaikum), basmalah (Bismillahirrahmanirrahim), puji-pujian (Alhamdulillah, hamdalah), atau perkenalan pembicara/pembawa acara. Clip harus dari ISI KAJIAN inti.
 7. **HINDARI bagian ADZAN.** Jika transcript mengandung lafadz adzan atau jeda adzan di tengah video, jangan pilih segmen itu sebagai clip.
 8. **HINDARI bagian CLOSING.** Jangan pilih clip yang mencakup doa penutup, wassalam, pengumuman kajian berikutnya, atau Q&A di akhir sesi. Clip AKHIR: berhenti di akhir topik kajian, potong SEBELUM penutup dimulai.
@@ -332,7 +350,12 @@ Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus di
 - **Awal clip:** kalimat pertama topik yang bisa dipahami tanpa konteks sebelumnya.
 - **Akhir clip:** kalimat TERAKHIR sebelum pembicara pindah ke topik baru. Cari di transcript: kata-kata penutup topik (kesimpulan, rangkuman) atau frasa transisi ("selanjutnya", "berikutnya", "adapun", "kita lanjut", "selesai", dll).
 - **TIDAK BOLEH** potong di tengah kalimat, di tengah paragraf, atau saat pembicara masih menjelaskan satu poin.
-- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Jika satu topik utuh lebih panjang dari {durasi_max} menit, potong hanya BAGIAN TERBAIK dari topik tersebut. Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun.
+- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun.
+- **Kalau satu topik utuh lebih panjang dari {durasi_max} menit:** JANGAN potong asal di tengah — cari **SUB-TOPIK yang utuh** di dalamnya (yang punya pembuka & penutup sendiri), atau pilih topik lain yang muat. Yang dilarang: memotong di tengah alur penjelasan hanya demi durasi.
+- **TES AKHIR (wajib dilakukan untuk setiap clip):** bayangkan clip diputar berdiri sendiri. Apakah pendengar paham dari awal sampai akhir, tanpa merasa ada bagian yang menggantung atau hilang? Kalau tidak, GESER boundary-nya sampai utuh.
+- **PRIORITAS:** keutuhan konteks > jumlah clip > durasi maksimum.
+
+**⚠️ DISIPLIN OUTPUT (WAJIB):** Kerjakan analisis, koreksi, dan pengecekan (termasuk TES AKHIR) secara **INTERNAL**. JANGAN tulis proses berpikir, pertimbangan, alternatif, atau revisi di jawaban. Output HARUS langsung: daftar clip FINAL sesuai format di bawah, lalu blok `.bat`. Jangan menulis "Clip 2 (Revisi)" atau mengulang clip.
 
 ## FORMAT OUTPUT (ikuti persis, untuk setiap clip)
 ### Clip [Nomor]: [Judul Deskriptif Sesuai Isi Clip]
@@ -738,6 +761,7 @@ def main():
                 ustadz_full = re.sub(r'^Ust\.?\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
                 if not re.match(r'Ustadz?\.?\s', ustadz_full, re.IGNORECASE):
                     ustadz_full = f"Ustadz {ustadz_full}"
+                ustadz_full = bersihkan_gelar(ustadz_full)
                 log(f"  👤 Ustadz: {ustadz_full}")
 
             # ── Album: hapus nama ustadz dari judul ──

@@ -1,8 +1,10 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.25.0
+version: 1.26.0
 # Changelog lengkap: references/changelog.md
+# 1.26.0 - REKONSILIASI dari branch main: prompt KONTEKS UTUH (SUB-TOPIK + TES AKHIR + prioritas keutuhan),
+#          --clips default 5 (fixed), bersihkan_gelar() hapus gelar akademik, pitfall video DUO. Mesin tetap versi server-linux.
 # 1.25.0 - Tambah "Checklist Progres (per Tahap)" — panduan pelaporan progres rinci per tahap + verifikasi.
 # 1.24.0 - Model Tahap 2 kembali ke OpenCode Go `deepseek-v4.1-flash` (saldo pulih 2026-09-19). Ganti provider: `AI_PROVIDER=opencode|openrouter`.
 # 1.23.0 - SKILL.md dirampingkan; detail dipindah ke references/ (pitfalls.md, prompt-rules.md, changelog.md, flat-output.md)
@@ -50,7 +52,9 @@ Untuk konten KAJIAN (ceramah), gunakan parameter eksplisit:
 python pipeline.py <URL> --min 4 --max 6 --clips 5
 ```
 
-> **⚠️ Catatan server Linux ini (2026-09-14):** Pipeline yang terpasang di `/home/faisal/.openclaw/workspace/insert-radio/` adalah **varian AUDIO/MP3 (kajian)** — download `yt-dlp -x` → MP3, output `.mp3`, tanpa flag `--audio`, default `--min 4 --max 6`. Varian MP4/talkshow yang dijelaskan di bagian "Default" di atas TIDAK ada di server ini (hanya di mesin Windows).
+> **⚠️ Catatan server Linux ini (2026-09-14, diperbarui 2026-09-19):** Pipeline yang terpasang di `/home/faisal/.openclaw/workspace/insert-radio/` adalah **varian AUDIO/MP3 (kajian)** — download `yt-dlp -x` → MP3, output `.mp3`, tanpa flag `--audio`, default `--min 4 --max 6`. Varian MP4/talkshow yang dijelaskan di bagian "Default" di atas TIDAK ada di server ini (hanya di mesin Windows).
+>
+> **Perubahan v1.26.0 (rekonsiliasi dari branch `main`):** `--clips` default **5 (fixed, bukan auto)**; prompt wajib **KONTEKS UTUH** (topik dari awal sampai tuntas, cari sub-topik kalau > max, **TES AKHIR** per clip, prioritas: keutuhan konteks > jumlah clip > durasi); `bersihkan_gelar()` otomatis hapus gelar akademik dari nama ustadz.
 
 ## Execution
 
@@ -82,9 +86,9 @@ Setelah tahap 2 (AI) selesai, tahap 3 (FFmpeg) tetap paralel per clip — ini am
 | Arg | Default | Deskripsi |
 |-----|---------|-----------|
 | `URL` | (required) | Link YouTube |
-| `--clips N` | 0 (auto) | Jumlah clip (0=otomatis dari durasi video) |
-| `--min M` | 1 | Durasi minimal per clip menit (default: 1 utk talkshow) |
-| `--max M` | 2 | Durasi maksimal per clip menit (default: 2 utk talkshow) |
+| `--clips N` | 5 | Jumlah clip (default 5; isi 0 untuk mode auto berdasarkan durasi) |
+| `--min M` | 4 | Durasi minimal per clip menit |
+| `--max M` | 6 | Durasi maksimal per clip menit |
 | `--skip-start N` | 0 | Skip N menit awal video (berguna kalau intro panjang/sebelum konten dimulai) |
 | `--audio` | false | Audio-only mode (MP3 output, tanpa video stream) |
 

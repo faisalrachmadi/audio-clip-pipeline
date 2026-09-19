@@ -1,6 +1,10 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.26.0 - REKONSILIASI dari branch main: SYSTEM_PROMPT wajib KONTEKS UTUH (SUB-TOPIK kalau > max, TES AKHIR per clip
+#          prioritas keutuhan konteks > jumlah clip > durasi), --clips default 5 (fixed, bukan auto),
+#          bersihkan_gelar() hapus gelar akademik (guard pemisah; fix "KH" jangan makan "Khalid"), pitfall video DUO.
+#          Mesin tetap versi server-linux (provider switch, targetLanguage=id, guard durasi+overlap, reasoning off).
 # 1.25.0 - Tambah "Checklist Progres (per Tahap)" di SKILL.md (T0 preflight, T1-T3, post, publish, verifikasi akhir).
 # 1.24.0 - Model Tahap 2 -> OpenCode Go `deepseek-v4.1-flash` (saldo pulih 2026-09-19). Switch provider via AI_PROVIDER.
 # 1.22.0 - GUARD OVERLAP: Tahap 2 deteksi clip tumpang tindih -> minta AI perbaiki; Tahap 3 urutkan & buang clip overlap (deterministik).
