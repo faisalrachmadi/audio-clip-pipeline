@@ -1,8 +1,10 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (deepseek-v4.1-flash), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.21.0
+version: 1.22.0
 # CHANGES:
+# 1.22.0 - Pitfall: video DUO (2 pembicara di judul) -- deteksi cuma ambil nama
+#          pertama. Kasus terbuka: belum ada konvensi penamaan, tanya user dulu
 # 1.21.0 - bersihkan_gelar() di kedua pipeline.py: gelar akademik (Dr, Lc, MA, M.Sc,
 #          Ph.D, Prof, KH, S.Pd, dll) otomatis dihapus dari nama ustadz
 #       - Pola gelar wajib dipisah spasi/koma dari nama (biar "Khalid" tidak kena "KH")
@@ -334,7 +336,8 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
   os.remove(part_file)
   ```
 
-- **User prefer "Ustadz" bukan "Ust":** Setelah pipeline rename (yang ubah "Ust."/"Ust" → "Ustadz"), masih ada kasus deteksi yang menghasilkan "Ust" tanpa titik (contoh: "Ust Badru Salam, Lc"). User selalu ingin full "Ustadz". **Fix manual:** rename file + update metadata artist setelah pipeline selesai. Jangan kirim file dengan nama "Ust" ke user tanpa fix dulu.
+- **Video DUO (2 pembicara di judul) — BELUM ada konvensi, tanya user dulu:** Deteksi nama hanya mengambil **nama pertama** (regex berhenti di separator). Contoh: judul `OBRAL SANAD | Ulama Harus Bersanad | Ustadz Dr. Sufyan Baswedan, M.A. & Ustadz Ammi Nur Baits` → artist jadi `Ustadz Sufyan Baswedan` saja, padahal dua-duanya bicara. Jangan nebak — tanya user mau: (a) dua nama digabung `Ustadz X & Ustadz Y`, (b) satu nama pertama, (c) nama program, atau (d) per-clip sesuai dominasi pembicara. Clip tetap diproses & dikirim; koreksi nama bisa dilakukan setelah user putuskan.
+- **User prefer "Ustadz" bukan "Ust":**** Setelah pipeline rename (yang ubah "Ust."/"Ust" → "Ustadz"), masih ada kasus deteksi yang menghasilkan "Ust" tanpa titik (contoh: "Ust Badru Salam, Lc"). User selalu ingin full "Ustadz". **Fix manual:** rename file + update metadata artist setelah pipeline selesai. Jangan kirim file dengan nama "Ust" ke user tanpa fix dulu.
 - **Gelar akademik di nama ustadz (otomatis sejak v1.21.0):** `bersihkan_gelar()` di `pipeline.py` menghapus gelar depan & belakang (Dr, Drs, Dra, Lc, MA, M.Ag, M.Sc, M. Pd, Ph.D, Prof, KH, Hj, S.Pd, S.T, S.Kom, BA, ST, SE, SH, MM, MBA). Contoh: `Ustadz Dr Syafiq Riza Basalamah MA` → `Ustadz Syafiq Riza Basalamah`. **Pitfall penting:** pola gelar WAJIB dipisah spasi/koma dari nama — tanpa pemisah, "KH" salah makan "Kh" dari "Khalid" (hasilnya jadi "alid Basalamah"). Kalau ada nama masih bergelar, tes dulu: `python -c "import importlib.util as u; s=u.spec_from_file_location('m','pipeline.py'); m=u.module_from_spec(s); s.loader.exec_module(m); print(m.bersihkan_gelar('Ustadz X MA'))"` sebelum menyalahkan deteksi.
 - **Path absolut semua:** Script menggunakan path absolut (jangan pakai ../../).
 - **yt-dlp butuh JS runtime:** Bisa warning soal deno/node — aman diabaikan, tidak mempengaruhi hasil.
