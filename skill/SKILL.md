@@ -1,8 +1,11 @@
 ---
 name: insert-radio
-description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (mimo-v2.5), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.18.0
+description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (deepseek-v4.1-flash), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
+version: 1.19.0
 # CHANGES:
+# 1.19.0 - Model Tahap 2: OpenCode Go mimo-v2.5 -> deepseek-v4.1-flash
+#       - WAJIB header `x-opencode-session` (OpenCode Go menolak tanpa ini sejak 2026-09-05, HTTP 400 MissingSessionID)
+#       - Request API harus SEQUENTIAL (paralel -> HTTP 500 Internal server error)
 # 1.18.0 - Switched AI model: DeepSeek V4 Flash -> OpenCode Go mimo-v2.5
 #       - Added --audio flag for audio-only mode (MP3 output)
 #       - Output folder changed to D:\Insert Automation\Insert maker\automate insert\output
@@ -97,7 +100,7 @@ Setelah tahap 2 (AI) selesai, tahap 3 (FFmpeg) tetap paralel per clip — ini am
 
 - **Apify API** -> ambil transcript YouTube (actor: `pintostudio~youtube-transcript-scraper`)
 - **yt-dlp** -> download video MP4 (`--merge-output-format mp4`)
-- **OpenCode Go API** (opencode.ai/zen/go/v1, model mimo-v2.5) -> analisis transcript -> generate perintah potong
+- **OpenCode Go API** (opencode.ai/zen/go/v1, model deepseek-v4.1-flash) -> analisis transcript -> generate perintah potong
 - **FFmpeg** -> potong clip (video: `-c:v copy`, audio: loudnorm + afade)
 - **convert_subs.py** (di `1. apify + audio/`) -> konversi YouTube JSON3 auto-captions → format Apify transcript. Gunakan saat transcript gagal via Apify (`python convert_subs.py input.json3 output.json`)
 - **script.pyw** (di `3. aplikasi potong kajian/`) -> GUI Tkinter untuk FFmpeg batch processing manual dari .bat file. Alternatif saat pipeline otomatis tidak bisa dipakai.
@@ -326,6 +329,7 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
 - **YouTube Live stream ended — butuh cookies:** Video yang sudah selesai live streaming tetap butuh cookies untuk diakses via yt-dlp. Tanpa cookies, error `Sign in to confirm you're not a bot`. Bahkan `player_client=android` tidak cukup — butuh PO Token tambahan untuk SABR-only streams. **Solusi:** Sediakan cookies valid dari browser yang sudah login YouTube.
 - **Ghost bin:** Hasil potong ada di `3_hasil_potong/` — jangan cari di folder lain.
 - **.env:** Tahap 1 butuh APIFY_TOKEN, Tahap 2 butuh OPENCODE_GO_API_KEY.
+- **Header x-opencode-session (WAJIB sejak 2026-09-05):** OpenCode Go 400 `MissingSessionID` kalau request tidak kirim header `x-opencode-session`. Tambahkan `"x-opencode-session": str(uuid.uuid4())` di headers (import `uuid`). Tanpa ini semua retry gagal; dengan header ini jalan.
 - **Audio/video output:** Pipeline default download MP4 dan output MP4 clip. Untuk output MP3 (kajian), dibutuhkan modifikasi: ganti `download_video()` balik ke `yt-dlp -x`, tambah `-vn` di ffmpeg, ganti `.mp4` ke `.mp3` di output. Atau maintain pipeline.py terpisah untuk masing-masing mode. Lihat `references/talkshow-video-variant.md` untuk detail migrasi.
 - **Character spesial di judul video:** Judul dengan `#`, `&`, atau karakter spesial lainnya bikin path folder output sulit diproses pas delivery file (timeout di Telegram API). **Workaround:** copy file ke `/tmp/` dulu sebelum deliver.
 - **Trailing punctuation di judul video bikin mkdir gagal:** Judul seperti "... Zaen, Lc., M.A." bikin `sanitize()` motong pas di koma/spasi karena `[:100]`. **Fix:** `sanitize()` di `pipeline.py` pakai `.rstrip(" .-,()")` setelah `[:100]`.
@@ -363,7 +367,7 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
   ```
 
 - **Auto clip count:** Pipeline hitung otomatis dari durasi audio: `max(3, min(12, round((durasi_detik-600)/600)))`. Skip 5 menit awal + 5 menit akhir. Override manual dengan `--clips N`.
-- **AI bisa kurangi jumlah clip:** AI (OpenCode Go mimo-v2.5) bisa menghasilkan clip lebih sedikit dari `--clips N` kalau tidak ada cukup segmen bagus untuk durasi yang diminta. **Ini normal dan diinginkan** — kualitas konten lebih penting dari jumlah clip. Jangan paksa AI generate clip kualitas rendah.
+- **AI bisa kurangi jumlah clip:** AI (OpenCode Go deepseek-v4.1-flash) bisa menghasilkan clip lebih sedikit dari `--clips N` kalau tidak ada cukup segmen bagus untuk durasi yang diminta. **Ini normal dan diinginkan** — kualitas konten lebih penting dari jumlah clip. Jangan paksa AI generate clip kualitas rendah.
 - **Durasi clip ditampilkan:** Setiap clip hasil potong menampilkan durasi (MM:SS), ukuran (KB), dan waktu proses (detik) — ambil dari arg `-t` di ffmpeg.
 - **Beban CPU bukan token:** Pipeline ini lebih berat ke CPU laptop (FFmpeg paralel di Tahap 3) daripada konsumsi token AI. Token cuma dipakai di Tahap 2 (~20K/run). Sisanya murni lokal.
 - **Apostrophe dalam nama ustadz:** Nama seperti "Rofi'i" atau "Atho'illah" putuskan regex prefix `[A-Za-z\s.]+`. **Fix:** Regex tambah `'` dan `’` ke character class: `[A-Za-z\s.'’]+`.
@@ -374,10 +378,10 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
 - **Deteksi ustadz bisa gagal:** Kalau judul video tidak pakai prefix "Ustadz"/"Ust."/dll, pipeline fallback ambil segmen terakhir setelah separator. Akibatnya nama ustadz bisa salah (contoh: "Maell Lee" terdeteksi padahal isinya Ustadz Khalid Basalamah). **Varian tambahan:** Judul yang dimulai dengan "Ustadz" tapi diikuti kata kerja/kalimat tanya (bukan nama orang), misal "Ustadz dibayar Ngisi Kajian, Dosa atau Boleh" → prefix match tetap fires, pipeline potong setelah "Ustadz " dan hasilkan nama palsu "Ustadz dibayar Ngisi Kajian". **Fix:** Manual rename & update metadata setelah pipeline selesai. Lihat references/ustadz-detection-failures.md Kasus 6.
 - **Sub-agent bisa lapor sukses padahal file gak beneran tersimpan:** Sub-agent summary adalah self-report — bisa melaporkan sukses padahal file mp3 tidak ada di disk (berlaku untuk direct run juga). **Verifikasi:** Selalu `ls` folder output setelah pipeline selesai untuk memastikan file .mp3 beneran ada di `3_hasil_potong/`.
 - **Hapus parameter `&pp=` dari URL YouTube:** Parameter `&pp=...` adalah search context, bukan bagian dari video ID. Pipeline bisa gagal atau berperilaku aneh. **Fix:** strip `&pp` dan parameter tracking lainnya dari URL sebelum kirim ke pipeline.
-- **AI override `--clips N`:** AI (OpenCode Go mimo-v2.5) kadang menghasilkan clip lebih banyak dari `--clips N` yang diminta karena nemu topik bagus tambahan, atau lebih sedikit karena tidak ada cukup segmen berkualitas. Pipeline tetap proses apa yang AI hasilkan — tidak ada filter ketat. Kalau mau strict, naikkan `temperature=0` di payload API.
+- **AI override `--clips N`:** AI (OpenCode Go deepseek-v4.1-flash) kadang menghasilkan clip lebih banyak dari `--clips N` yang diminta karena nemu topik bagus tambahan, atau lebih sedikit karena tidak ada cukup segmen berkualitas. Pipeline tetap proses apa yang AI hasilkan — tidak ada filter ketat. Kalau mau strict, naikkan `temperature=0` di payload API.
 - **YouTube Live tanpa captions:** yt-dlp `--list-subs` berguna untuk cek cepat apakah video punya caption sebelum jalankan pipeline penuh. `yt-dlp --list-subs <URL>` akan bilang "has no automatic captions" / "has no subtitles" kalau kosong.
 - **Cron job retry untuk video gagal:** Video yang gagal karena transcript kosong (YouTube Live) bisa dijadwalkan ulang via cron job untuk besok/hari berikutnya — kadang caption auto-generated baru muncul beberapa jam setelah upload. Buat cronjob 1x dengan action='create', schedule='YYYY-MM-DDT08:00:00' (besok pagi).
-- **OpenCode Go API timeout di Tahap 2:** Kadang API call ke OpenCode Go bisa timeout (HTTP 404/400). Model aktif: `mimo-v2.5`. Pipeline stuck di "Mengirim ke OpenCode Go..." tanpa error. **Fix:** Kill proses dan restart. Retry biasanya berhasil di percobaan kedua (response datang dalam 1-2 menit). Ini transient API issue, tidak perlu ubah kode. **Penting:** URL harus lengkap dengan `/chat/completions` di akhir.
+- **OpenCode Go API timeout di Tahap 2:** Kadang API call ke OpenCode Go bisa timeout (HTTP 404/400). Model aktif: `deepseek-v4.1-flash` (opsi lain di OpenCode Go: `mimo-v2.5`, `longcat-2.0`, `kimi-k2.6`, `glm-5.3` — cek `GET /zen/go/v1/models`). Pipeline stuck di "Mengirim ke OpenCode Go..." tanpa error. **Fix:** Kill proses dan restart. Retry biasanya berhasil di percobaan kedua (response datang dalam 1-2 menit). Ini transient API issue, tidak perlu ubah kode. **Penting:** URL harus lengkap dengan `/chat/completions` di akhir.
 - **Total runtime per durasi video:** Pipeline selesai dalam skala menit tergantung panjang video dan transcript. Data dari real runs:
   - **Video 40-50 min (~1000 segmen, 57K chars):** ~5 menit total — transcript fetch (10s), audio download (2-3 min), AI analysis (1-2 min), FFmpeg potong (20s). Contoh: 46 min video menghasilkan 3 clip (4-6 min) dalam 5 menit 20 detik.
   - **Video LIVE 90-180 min (100K-200K chars):** Total 5-15 menit — transcript fetch (10-30s), audio download (1-5 min untuk 132 min video), AI analysis (1-5 min + kemungkinan retry jika hang), FFmpeg potong (30s-2 min).

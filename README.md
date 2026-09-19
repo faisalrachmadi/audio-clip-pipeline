@@ -5,7 +5,7 @@ Pipeline otomatis YouTube → Transcript → Analisis AI → Potong Clip MP3/MP4
 ## Fitur
 
 - **3 Tahap Otomatis:** Download transcript & audio → Analisis AI → Potong clip
-- **AI-Powered:** Pilih momen terbaik via OpenCode Go (mimo-v2.5)
+- **AI-Powered:** Pilih momen terbaik via OpenCode Go (deepseek-v4.1-flash)
 - **Parallel FFmpeg:** Potong semua clip bersamaan (kencang!)
 - **Mode Audio/Video:** `--audio` untuk MP3 (kajian), default MP4 (talkshow)
 - **Deteksi Ustadz:** Otomatis deteksi & rename nama ustadz dari judul video

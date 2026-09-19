@@ -40,7 +40,7 @@ for path, name in [(YT_DLP, "yt-dlp"), (FFMPEG, "ffmpeg")]:
 
 APIFY_ACTOR = "https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items"
 DEEPSEEK_URL = os.getenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1") + "/chat/completions"
-MODEL_ID = "deepseek-v4-flash"
+MODEL_ID = "deepseek-v4.1-flash"
 
 MAX_WORKERS = os.cpu_count() or 4
 
@@ -362,7 +362,7 @@ Aturan nama file:
             "Content-Type": "application/json",
         },
         json=payload,
-        timeout=900,
+        timeout=1200,
     )
 
     if not resp.ok:
