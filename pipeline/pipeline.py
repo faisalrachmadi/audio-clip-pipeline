@@ -8,7 +8,7 @@ Optimasi:
   C = Cache transcript (skip Apify kalau sudah ada)
 """
 
-import json, os, re, sys, subprocess, shlex, time, uuid
+import json, os, re, shutil, sys, subprocess, shlex, time, uuid
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,8 +31,8 @@ load_dotenv(BASE_DIR / "2. Analisa json" / ".env")
 # API key: prioritaskan OpenCode Go (OPENCODE_GO_API_KEY), fallback DeepSeek direct (DEEPSEEK_API_KEY)
 DEEPSEEK_KEY = os.getenv("OPENCODE_GO_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
 
-YT_DLP = r"C:\yt-dlp_win\yt-dlp.exe"
-FFMPEG = r"C:\ffmpeg-2025-11-12-git-6cdd2cbe32-essentials_build\bin\ffmpeg.exe"
+YT_DLP = os.getenv("YT_DLP", r"C:\yt-dlp_win\yt-dlp.exe")
+FFMPEG = os.getenv("FFMPEG", r"C:\ffmpeg-2025-11-12-git-6cdd2cbe32-essentials_build\bin\ffmpeg.exe")
 
 for path, name in [(YT_DLP, "yt-dlp"), (FFMPEG, "ffmpeg")]:
     if not os.path.exists(path):
@@ -83,6 +83,9 @@ def parse_args():
     p.add_argument("--min", type=int, default=4, help="Durasi minimal per clip menit (default: 4)")
     p.add_argument("--max", type=int, default=6, help="Durasi maksimal per clip menit (default: 6)")
     p.add_argument("--skip-start", type=int, default=0, help="Skip N menit awal (default: 0)")
+    p.add_argument("--extra", "-e", default="", help="Instruksi khusus untuk Tahap 2. Contoh: fokus ke bahasan sabar")
+    p.add_argument("--extra-file", default=None, help="Baca instruksi khusus dari file .txt")
+    p.add_argument("--keep-folders", action="store_true", help="Simpan clip di folder per-video (jangan dipindah ke output utama)")
     return p.parse_args()
 
 
@@ -143,6 +146,49 @@ def download_audio(url, audio_path):
                 raise
 
 
+def pindah_ke_flat(hasil_dir, flat_dir):
+    """Pindahkan semua .mp3 dari folder hasil ke folder output utama (flat).
+    Nama bentrok ditambah '(n)'. Return jumlah file yang dipindah."""
+    flat_dir.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for f in sorted(hasil_dir.glob("*.mp3")):
+        dest = flat_dir / f.name
+        if dest.exists():
+            base = dest
+            counter = 1
+            while dest.exists():
+                dest = base.parent / f"{base.stem} ({counter}){base.suffix}"
+                counter += 1
+        shutil.move(str(f), str(dest))
+        moved += 1
+    return moved
+
+
+def normalize_youtube_url(url):
+    """Ambil video ID dari berbagai bentuk URL YouTube -> URL watch standar.
+    Return None kalau URL tidak dikenali."""
+    from urllib.parse import urlparse, parse_qs
+    u = (url or "").strip()
+    if not u:
+        return None
+    p = urlparse(u)
+    host = (p.netloc or "").lower().replace("www.", "").replace("m.", "")
+    vid = None
+    if host == "youtu.be":
+        seg = [s for s in (p.path or "").split("/") if s]
+        vid = seg[0] if seg else None
+    elif host.endswith("youtube.com"):
+        path = p.path or ""
+        parts = [s for s in path.split("/") if s]
+        if path.startswith("/shorts/") or path.startswith("/live/") or path.startswith("/embed/"):
+            vid = parts[1] if len(parts) > 1 else None
+        else:
+            vid = (parse_qs(p.query).get("v") or [None])[0]
+    if not vid or not re.fullmatch(r"[A-Za-z0-9_\-]{11}", vid.strip()):
+        return None
+    return f"https://www.youtube.com/watch?v={vid.strip()}"
+
+
 def fetch_transcript(url, token):
     """Panggil Apify API, return data JSON."""
     resp = requests.post(
@@ -151,7 +197,12 @@ def fetch_transcript(url, token):
         timeout=300,
     )
     if not resp.ok:
-        raise RuntimeError(f"Apify HTTP {resp.status_code}: {resp.text[:300]}")
+        detail = ""
+        try:
+            detail = (resp.json().get("error") or {}).get("message") or ""
+        except Exception:
+            pass
+        raise RuntimeError(f"Apify HTTP {resp.status_code}: {detail or resp.text[:300]}")
     return resp.json()
 
 
@@ -231,7 +282,7 @@ def tahap1(url, output_dir, video_title):
 
 
 # ─── TAHAP 2: Analisis AI → BAT ───────────────────────────────
-def tahap2(transcript_path, output_dir, jumlah_clip, durasi_min, durasi_max, skip_start=0):
+def tahap2(transcript_path, output_dir, jumlah_clip, durasi_min, durasi_max, skip_start=0, extra_prompt=""):
     log("═══ TAHAP 2: Analisis AI → BAT ═══")
     skip_seconds = skip_start * 60
     if skip_seconds > 0:
@@ -331,10 +382,12 @@ Durasi clip ADALAH KONSEKUENSI DARI PANJANG TOPIK — bukan target yang harus di
 - **Awal clip:** kalimat pertama topik yang bisa dipahami tanpa konteks sebelumnya.
 - **Akhir clip:** kalimat TERAKHIR sebelum pembicara pindah ke topik baru. Cari di transcript: kata-kata penutup topik (kesimpulan, rangkuman) atau frasa transisi ("selanjutnya", "berikutnya", "adapun", "kita lanjut", "selesai", dll).
 - **TIDAK BOLEH** potong di tengah kalimat, di tengah paragraf, atau saat pembicara masih menjelaskan satu poin.
-- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun.
+- **WAJIB: durasi clip = {durasi_min}-{durasi_max} menit.** Clip TIDAK BOLEH melebihi {durasi_max} menit dalam keadaan apapun - ini BATAS KERAS, bukan saran.
 - **Kalau satu topik utuh lebih panjang dari {durasi_max} menit:** JANGAN potong asal di tengah — cari **SUB-TOPIK yang utuh** di dalamnya (yang punya pembuka & penutup sendiri), atau pilih topik lain yang muat. Yang dilarang: memotong di tengah alur penjelasan hanya demi durasi.
 - **TES AKHIR (wajib dilakukan untuk setiap clip):** bayangkan clip diputar berdiri sendiri. Apakah pendengar paham dari awal sampai akhir, tanpa merasa ada bagian yang menggantung atau hilang? Kalau tidak, GESER boundary-nya sampai utuh.
-- **PRIORITAS:** keutuhan konteks > jumlah clip > durasi maksimum.
+- **PRIORITAS:** durasi maksimum = BATAS KERAS (tidak boleh dilanggar dalam keadaan apapun) > keutuhan konteks > jumlah clip.
+- **DILARANG** mengembalikan clip lebih panjang dari {durasi_max} menit. Kalau tidak ada topik utuh yang muat, potong jadi SUB-TOPIK utuh di dalamnya, atau SKIP clip itu. Lebih baik hasil 3 clip dari 5 daripada ada 1 clip melebihi batas.
+- **CEK AKHIR WAJIB:** sebelum kirim output, hitung durasi tiap clip. Kalau ada yang lebih dari {durasi_max} menit, perbaiki dulu sampai semua masuk rentang.
 
 ## FORMAT OUTPUT (ikuti persis, untuk setiap clip)
 ### Clip [Nomor]: [Judul Deskriptif Sesuai Isi Clip]
@@ -359,6 +412,20 @@ Aturan nama file:
 - Format: [nomor-2-digit]_[judul-singkat-kebab-case].mp3
 - Maksimal 5 kata, huruf kecil, tanpa spasi/karakter khusus
 - Nilai [durasi_detik-2] = total durasi clip dikurangi 2"""
+    if extra_prompt.strip():
+        SYSTEM_PROMPT += f"""
+
+## KEBUTUHAN KHUSUS DARI USER (PRIORITAS TINGGI)
+Instruksi berikut datang langsung dari user untuk video ini. Patuhi:
+{extra_prompt.strip()}
+
+Aturan konflik: instruksi user MENANG atas aturan seleksi di atas
+(hindari opening/adzan/closing, sebar topik, dsb).
+TAPI batas durasi maksimum {durasi_max} menit TETAP BERLAKU dan tidak boleh dilanggar.
+Kalau kebutuhan user butuh clip lebih panjang, jangan langgar batas - pilih topik yang muat,
+atau sebutkan di log bahwa durasi maksimum perlu dinaikkan.
+"""
+        log(f"  [extra] Instruksi khusus aktif ({len(extra_prompt)} karakter)")
 
     log(f"  Mengirim ke DeepSeek ({MODEL_ID})...")
     log(f"  Clip: {jumlah_clip}, Durasi: {durasi_min}-{durasi_max} menit")
@@ -558,6 +625,17 @@ def main():
     log(f"📐 Clip: {args.clips}, Durasi: {args.min}-{args.max} menit" + (f", Skip awal: {args.skip_start}m" if args.skip_start else ""))
     print()
 
+    norm = normalize_youtube_url(args.url)
+    if not norm:
+        sys.exit(
+            f"❌ URL YouTube tidak dikenali:\n   {args.url}\n"
+            "   Yang dibutuhkan: link video, contoh https://www.youtube.com/watch?v=XXXXXXXXXXX\n"
+            "   Link playlist / channel / hasil pencarian tidak bisa diproses."
+        )
+    if norm != args.url.strip():
+        log(f"🔗 URL dinormalkan -> {norm}")
+    args.url = norm
+
     log("Mendapatkan judul video...")
     title = run_subprocess(
         [YT_DLP, "--get-title", args.url],
@@ -575,7 +653,14 @@ def main():
         log(f"📐 Clip: {jumlah_clip} (auto)" if args.clips == 0 else f"📐 Clip: {jumlah_clip} (manual)")
         log(f"   Durasi: {args.min}-{args.max} menit" + (f", Skip awal: {args.skip_start}m" if args.skip_start else ""))
         print()
-        bat_path = tahap2(transcript_path, output_dir, jumlah_clip, args.min, args.max, args.skip_start)
+        extra = args.extra or ""
+        if args.extra_file:
+            try:
+                extra = (extra + "\n" + Path(args.extra_file).read_text(encoding="utf-8")).strip()
+            except Exception as e:
+                log(f"  [warn] Gagal baca --extra-file: {e}")
+        bat_path = tahap2(transcript_path, output_dir, jumlah_clip, args.min, args.max,
+                          args.skip_start, extra_prompt=extra)
         print()
         tahap3(audio_path, bat_path, output_dir)
         print()
@@ -658,6 +743,7 @@ def main():
                 else:
                     new_stem = clip_title
                 
+                new_stem = re.sub(r'[\/:*?"<>|]', "", new_stem).strip()
                 new_path = f.parent / f"{new_stem}{f.suffix}"
                 
                 # Rename file
@@ -693,6 +779,12 @@ def main():
                     log(f"  💿 Metadata: {meta_title} — {meta_artist}")
                 except Exception as e:
                     log(f"  ⚠️  Metadata gagal: {e}")
+        # ── Pindahkan clip final ke folder output utama (flat) ──
+        if not args.keep_folders:
+            n = pindah_ke_flat(hasil_dir, BASE_DIR / "output")
+            if n:
+                log(f"  📂 {n} clip dipindah ke: {BASE_DIR / 'output'}")
+
         log("🎉 PIPELINE SELESAI!")
         # Cleanup: hapus audio_full.mp3 (udah gak dipakai setelah clipping)
         if audio_path and os.path.exists(audio_path):

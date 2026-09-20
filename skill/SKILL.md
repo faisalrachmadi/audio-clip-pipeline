@@ -1,8 +1,14 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (deepseek-v4.1-flash), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.22.0
+version: 1.23.0
 # CHANGES:
+# 1.23.0 - FIX BESAR: regex di (B) pakai escape ganda (`\\u2013` di r-string) sehingga jadi
+#          deretan karakter literal termasuk huruf "u" -> nama ustadz jadi sampah
+#          (contoh nyata: 'pkan Sunnah-Sunnah Yang Terlupakan: Beberapa Dzikir').
+#          Dipakai karakter asli (- - ') seperti di (A). (A) & (B) sekarang IDENTIK.
+#       - Tambah pembersih karakter ilegal Windows (\ / : * ? " < > |) sebelum os.rename
+#          -> cegah crash WinError 123 (nama mengandung ':')
 # 1.22.0 - Pitfall: video DUO (2 pembicara di judul) -- deteksi cuma ambil nama
 #          pertama. Kasus terbuka: belum ada konvensi penamaan, tanya user dulu
 # 1.21.0 - bersihkan_gelar() di kedua pipeline.py: gelar akademik (Dr, Lc, MA, M.Sc,
@@ -336,6 +342,8 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
   os.remove(part_file)
   ```
 
+- **BUG REGEX ESCAPE GANDA — nama ustadz jadi sampah (FIXED v1.23.0):** Kalau regex separator ditulis `r'[|\\u2013\\u2014]'` (escape ganda di dalam r-string), Python + `re` memperlakukannya sebagai **deretan karakter literal** `\ u 2 0 1 3` — termasuk huruf **"u"**! Akibatnya pencarian separator nyangkut di huruf "u" pertama judul dan mengambil semua teks sesudahnya. Contoh nyata: judul `Menghidupkan Sunnah-Sunnah Yang Terlupakan: Beberapa Dzikir Yang Dilupakan | Khalid Basalamah` → nama jadi `Ustadz pkan Sunnah-Sunnah Yang Terlupakan: Beberapa Dzikir` (nyangkut di huruf "u" kata "Menghid**u**pkan"), lalu rename crash WinError 123 karena ada `:`. **Aturan:** di r-string, tulis karakter aslinya — `r'[|–—]'`, `[A-Za-z\s.\'’]` — jangan `\\uXXXX`. **Cara cek:** hitung backslash-ganda per baris (harus 0 di baris regex); bandingkan hasil regex (A) vs (B) pada judul yang sama — harus IDENTIK.
+- **Karakter ilegal di nama file (FIXED v1.23.0):** `os.rename` gagal `WinError 123` kalau nama mengandung `\ / : * ? " < > |`. Pipeline sekarang membersihkan karakter itu dari `new_stem` (`re.sub(r'[\\/:*?"<>|]', '', new_stem)`) — **jangan pakai `sanitize()` penuh** karena dia juga membuang apostrof (`Ustadz Dhiya'ul` → `Dhiyaul`).
 - **Video DUO (2 pembicara di judul) — BELUM ada konvensi, tanya user dulu:** Deteksi nama hanya mengambil **nama pertama** (regex berhenti di separator). Contoh: judul `OBRAL SANAD | Ulama Harus Bersanad | Ustadz Dr. Sufyan Baswedan, M.A. & Ustadz Ammi Nur Baits` → artist jadi `Ustadz Sufyan Baswedan` saja, padahal dua-duanya bicara. Jangan nebak — tanya user mau: (a) dua nama digabung `Ustadz X & Ustadz Y`, (b) satu nama pertama, (c) nama program, atau (d) per-clip sesuai dominasi pembicara. Clip tetap diproses & dikirim; koreksi nama bisa dilakukan setelah user putuskan.
 - **User prefer "Ustadz" bukan "Ust":**** Setelah pipeline rename (yang ubah "Ust."/"Ust" → "Ustadz"), masih ada kasus deteksi yang menghasilkan "Ust" tanpa titik (contoh: "Ust Badru Salam, Lc"). User selalu ingin full "Ustadz". **Fix manual:** rename file + update metadata artist setelah pipeline selesai. Jangan kirim file dengan nama "Ust" ke user tanpa fix dulu.
 - **Gelar akademik di nama ustadz (otomatis sejak v1.21.0):** `bersihkan_gelar()` di `pipeline.py` menghapus gelar depan & belakang (Dr, Drs, Dra, Lc, MA, M.Ag, M.Sc, M. Pd, Ph.D, Prof, KH, Hj, S.Pd, S.T, S.Kom, BA, ST, SE, SH, MM, MBA). Contoh: `Ustadz Dr Syafiq Riza Basalamah MA` → `Ustadz Syafiq Riza Basalamah`. **Pitfall penting:** pola gelar WAJIB dipisah spasi/koma dari nama — tanpa pemisah, "KH" salah makan "Kh" dari "Khalid" (hasilnya jadi "alid Basalamah"). Kalau ada nama masih bergelar, tes dulu: `python -c "import importlib.util as u; s=u.spec_from_file_location('m','pipeline.py'); m=u.module_from_spec(s); s.loader.exec_module(m); print(m.bersihkan_gelar('Ustadz X MA'))"` sebelum menyalahkan deteksi.
