@@ -464,33 +464,47 @@ Aturan nama file:
 
     def _violations(txt):
         spans = _spans(txt)
-        # Rentang --min/--max itu LUNAK (mengikuti topik). Hanya nilai EKSTREM yang dianggap pelanggaran.
-        dur_bad = [round(d) for _, d in spans if d < HARD_MIN_SEC or d > HARD_MAX_SEC]
+        # Rentang --min/--max LUNAK (mengikuti topik). Hanya nilai EKSTREM yang dianggap pelanggaran.
+        dur_long = [(round(s), round(d)) for s, d in spans if d > HARD_MAX_SEC]
+        dur_short = [(round(s), round(d)) for s, d in spans if d < HARD_MIN_SEC]
         ov = []
         srt = sorted(spans)
         for (s1, d1), (s2, _) in zip(srt, srt[1:]):
             if s2 < s1 + d1 - 1.0:  # toleransi 1s: boundary bersinggungan bukan overlap
                 ov.append((round(s1), round(s1 + d1), round(s2)))
-        return dur_bad, ov
+        return dur_long, dur_short, ov
 
-    for attempt in (1, 2):
-        dur_bad, ov = _violations(bat_content)
-        if (not dur_bad and not ov) or attempt == 2:
+    # 1 output awal + 2 putaran perbaikan (opsi b: PERBAIKI, bukan sekadar buang)
+    REPAIR_MAX = 3
+    for attempt in range(1, REPAIR_MAX + 1):
+        dur_long, dur_short, ov = _violations(bat_content)
+        if (not dur_long and not dur_short and not ov) or attempt == REPAIR_MAX:
             break
-        issues = []
-        if dur_bad:
-            issues.append(f"durasi EKSTREM: {dur_bad}s (batas wajar {HARD_MIN_SEC//60}-{HARD_MAX_SEC//60} mnt)")
+        issues, aksi = [], []
+        for s, d in dur_long:
+            issues.append(f"clip di {s}s terlalu PANJANG ({d}s)")
+            aksi.append(
+                f"- Clip pada {s}s ({d}s = {d/60:.1f} mnt): PECAH jadi 2-3 sub-topik yang masing-masing "
+                "punya pembuka & penutup sendiri. JANGAN cuma dipotong di tengah."
+            )
+        for s, d in dur_short:
+            issues.append(f"clip di {s}s terlalu PENDEK ({d}s)")
+            aksi.append(
+                f"- Clip pada {s}s ({d}s = {d/60:.1f} mnt): GABUNG dengan topik di sebelahnya yang masih sejenis "
+                "jadi satu clip utuh, ATAU ganti dengan topik lain yang lebih utuh."
+            )
         if ov:
-            issues.append(f"clip TUMPANG TINDIH (prev_start,prev_end,next_start): {ov}")
-        log(f"  ⚠️  {'; '.join(issues)} → minta AI perbaiki")
+            issues.append(f"clip TUMPANG TINDIH: {ov}")
+            aksi.append("- Ada clip tumpang tindih: start clip berikut HARUS setelah end clip sebelumnya (urut waktu).")
+        log(f"  ⚠️  {'; '.join(issues)} → minta AI perbaiki ({attempt}/{REPAIR_MAX-1})")
         fix_msg = (
-            "PERBAIKAN — " + "; ".join(issues) + ".\n"
-            "Perbaiki blok .bat SAJA. Boundary HARUS dari transkrip (topik utuh), bukan angka yang dipilih dulu.\n"
-            f"(1) Durasi = jarak awal-topik sampai topik itu tuntas. {min_sec}-{max_sec} detik itu panjang LAZIM, "
-            "bukan patokan wajib — kalau topiknya lebih panjang, biarkan lebih panjang (jangan dipotong).\n"
-            f"(2) Hanya durasi EKSTREM (< {HARD_MIN_SEC} atau > {HARD_MAX_SEC} detik) yang perlu diubah, dan hanya "
-            "dengan memilih topik/sub-topik lain yang utuh — BUKAN dengan memotong di tengah pembahasan.\n"
-            "(3) NO OVERLAP — start clip berikut HARUS > end clip sebelumnya, urut waktu."
+            "PERBAIKAN WAJIB — " + "; ".join(issues) + ".\n"
+            "Tulis ULANG hanya blok .bat (beserta daftar clip yang berubah). Boundary HARUS dari transkrip, "
+            "bukan angka yang dipilih dulu.\nAKSI PER CLIP:\n" + "\n".join(aksi) + "\n"
+            f"Patokan: durasi < {HARD_MIN_SEC}s terlalu pendek, > {HARD_MAX_SEC}s terlalu panjang. "
+            f"Rentang {min_sec}-{max_sec}s tetap panjang yang LAZIM, bukan patokan wajib.\n"
+            "PENTING: jangan kurangi jumlah clip kalau masih bisa diperbaiki — pecah yang kepanjangan, "
+            "gabung yang kependekan. Baru kurangi kalau materi videonya memang tidak cukup."
         )
         try:
             fix_payload = {
@@ -516,9 +530,9 @@ Aturan nama file:
             log(f"  ⚠️  Re-ask gagal: {str(e)[:120]}")
             break
 
-    dur_bad, ov = _violations(bat_content)
-    if dur_bad or ov:
-        log(f"  ⚠️  Masih ada pelanggaran (durasi ekstrem={dur_bad}, overlap={ov}) — dibersihkan di Tahap 3")
+    dur_long, dur_short, ov = _violations(bat_content)
+    if dur_long or dur_short or ov:
+        log(f"  ⚠️  Sisa setelah perbaikan (panjang={dur_long}, pendek={dur_short}, overlap={ov}) — diperbaiki lagi di Tahap 3")
 
     log_path = analisa_dir / "potong_log_alasan.md"
     with open(log_path, "w", encoding="utf-8") as f:
@@ -603,6 +617,66 @@ def run_single_ffmpeg(cmd, idx, total):
         return (idx, False, out_name, str(e)[:200], None, "")
 
 
+# ─── Reparasi boundary (opsi b: PERBAIKI, bukan sekadar buang) ──
+def _fmt_ts(sec):
+    """Detik -> HH:MM:SS.ms (format yang dipakai perintah ffmpeg)."""
+    sec = max(0.0, float(sec))
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    return f"{h:02d}:{m:02d}:{sec % 60:06.3f}"
+
+
+def _load_segment_ends(transcript_path):
+    """Titik akhir tiap kalimat transcript (detik) — untuk snap boundary ke kalimat utuh."""
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        segs = [s for b in data if isinstance(b, dict) and "data" in b for s in b["data"]]
+        ends = sorted({round(float(s["start"]) + float(s["dur"]), 3)
+                       for s in segs if s.get("start") is not None and s.get("dur") is not None})
+        return ends
+    except Exception:
+        return []
+
+
+def _snap_end(ends, sec, direction="up"):
+    """Cari titik akhir kalimat terdekat (naik/turun) dari `sec`."""
+    if not ends:
+        return sec
+    import bisect
+    i = bisect.bisect_left(ends, sec)
+    if direction == "up":
+        return ends[i] if i < len(ends) else ends[-1]
+    return ends[i - 1] if i > 0 else ends[0]
+
+
+def _retime_cmd(cmd, start, dur):
+    """Set ulang -ss / -t / afade-out pada satu perintah ffmpeg, tanpa mengubah bagian lain."""
+    parts = list(cmd)
+    if "-ss" in parts:
+        parts[parts.index("-ss") + 1] = _fmt_ts(start)
+    if "-t" in parts:
+        parts[parts.index("-t") + 1] = f"{float(dur):.1f}"
+    for i, p in enumerate(parts):
+        if isinstance(p, str) and "afade=t=out" in p:
+            parts[i] = re.sub(r"afade=t=out:st=[\d.]+", f"afade=t=out:st={max(0.0, float(dur) - 2):.1f}", p)
+    return parts
+
+
+def _out_name(cmd):
+    return os.path.basename(cmd[-1])
+
+
+def _slug(cmd):
+    """Ambil slug judul dari nama file (buang SEMUA prefix nomor, termasuk bertingkat: 02_02a_)."""
+    stem = os.path.splitext(_out_name(cmd))[0]
+    prev = None
+    while prev != stem:
+        prev = stem
+        stem = re.sub(r"^\d+[a-z]?[\s_\-]+", "", stem, flags=re.IGNORECASE)
+    return stem or "clip"
+
+
 # ─── TAHAP 3: Potong Audio (OPTIMASI A: Parallel FFmpeg) ──────
 def tahap3(audio_path, bat_path, output_dir, durasi_min=None, durasi_max=None):
     log("═══ TAHAP 3: Potong Audio ═══")
@@ -635,22 +709,100 @@ def tahap3(audio_path, bat_path, output_dir, durasi_min=None, durasi_max=None):
                 return None
         return None
 
+    # ── Guard REPARASI (opsi b): perbaiki boundary ke kalimat utuh, bukan sekadar buang ──
+    seg_ends = _load_segment_ends(output_dir / "1_apify" / "transcript.json")
+    if seg_ends:
+        log(f"  🧩 Snap boundary ke kalimat transkrip ({len(seg_ends)} titik)")
+
     timed = [(c, _c_start(c), _c_dur(c)) for c in commands]
     timed.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else 0.0))
 
     kept = []
     last_end = None
+    n_shift = n_ext = n_split = n_drop = 0
+
     for cmd, s, d in timed:
-        name = os.path.basename(cmd[-1])
-        if d is not None and (d < HARD_MIN_SEC or d > HARD_MAX_SEC):
-            log(f"  ⏭️  Skip {name} ({d:.0f}s, ekstrem — di luar {HARD_MIN_SEC//60}-{HARD_MAX_SEC//60} mnt)")
+        name = _out_name(cmd)
+        if s is None or d is None:
+            kept.append(cmd)
             continue
-        if s is not None and d is not None and last_end is not None and s < last_end - 1.0:
-            log(f"  ⏭️  Skip {name} (overlap nyata: start {s:.0f}s < end sebelumnya {last_end:.0f}s)")
+        end = s + d
+
+        # (1) OVERLAP nyata -> geser start ke akhir clip sebelumnya (snap ke kalimat)
+        if last_end is not None and s < last_end - 1.0:
+            new_s = _snap_end(seg_ends, last_end, "up")
+            new_d = end - new_s
+            if new_d >= HARD_MIN_SEC:
+                cmd = _retime_cmd(cmd, new_s, new_d)
+                s, d, end = new_s, new_d, new_s + new_d
+                n_shift += 1
+                log(f"  🩹 {name}: geser start {new_s:.1f}s (hindari overlap)")
+            else:
+                prev = kept[-1]
+                ps, pd = _c_start(prev), _c_dur(prev)
+                if ps is not None and pd is not None:
+                    merged = end - ps
+                    kept[-1] = _retime_cmd(prev, ps, merged)
+                    last_end = ps + merged
+                    n_ext += 1
+                    log(f"  🩹 {name}: digabung ke clip sebelumnya → {merged:.0f}s")
+                else:
+                    n_drop += 1
+                    log(f"  ⏭️  {name}: dibuang (overlap & tak bisa digabung)")
+                continue
+
+        # (2) TERLALU PENDEK -> panjangkan sampai kalimat berikutnya
+        if d < HARD_MIN_SEC:
+            d_awal = d
+            target = _snap_end(seg_ends, s + HARD_MIN_SEC, "up")
+            new_d = target - s
+            if new_d <= HARD_MAX_SEC:
+                cmd = _retime_cmd(cmd, s, new_d)
+                d, end = new_d, s + new_d
+                n_ext += 1
+                log(f"  🩹 {name}: dipanjangkan {d_awal:.0f}s → {new_d:.0f}s")
+            else:
+                n_drop += 1
+                log(f"  ⏭️  {name}: dibuang ({d:.0f}s, tak bisa dipanjangkan tanpa lewat batas)")
+                continue
+
+        # (3) TERLALU PANJANG -> pecah jadi sub-topik utuh di batas kalimat
+        if d > HARD_MAX_SEC:
+            n_parts = max(2, min(4, round(d / HARD_MAX_SEC) + 1))
+            bounds = [s] + [
+                _snap_end(seg_ends, s + d * k / n_parts, "up") for k in range(1, n_parts)
+            ] + [end]
+            slug = _slug(cmd)
+            made = []
+            for k in range(n_parts):
+                ps, pe = bounds[k], bounds[k + 1]
+                if pe - ps < HARD_MIN_SEC:
+                    continue
+                part = _retime_cmd(cmd, ps, pe - ps)
+                # Nama tiap pecahan WAJIB beda, kalau tidak judul ketiga clip jadi identik
+                part_slug = f"{slug}-bagian-{k + 1}"
+                part[-1] = str(hasil_dir / f"{len(kept) + len(made) + 1:02d}_{part_slug}.mp3")
+                made.append(part)
+            if made:
+                kept.extend(made)
+                last_end = bounds[-1]
+                n_split += len(made)
+                log(f"  🩹 {name}: {d:.0f}s → dipecah jadi {len(made)} bagian")
+            else:
+                n_drop += 1
+                log(f"  ⏭️  {name}: dibuang ({d:.0f}s, pecahan tak ada yang cukup panjang)")
             continue
+
         kept.append(cmd)
-        if s is not None and d is not None:
-            last_end = s + d if last_end is None else max(last_end, s + d)
+        last_end = end if last_end is None else max(last_end, end)
+
+    # Renumber ulang sesuai urutan waktu (biar nomor file rapi & unik)
+    kept.sort(key=lambda c: (_c_start(c) is None, _c_start(c) or 0.0))
+    for i, c in enumerate(kept, 1):
+        c[-1] = str(hasil_dir / f"{i:02d}_{_slug(c)}.mp3")
+
+    if n_shift or n_ext or n_split or n_drop:
+        log(f"  🧰 Reparasi: geser={n_shift}, panjangkan/gabung={n_ext}, pecah={n_split}, dibuang={n_drop}")
 
     commands = kept
     total = len(commands)
@@ -798,8 +950,12 @@ def main():
             for f in clip_files:
                 # Ekstrak judul clip dari nama file asli: "01_metode-menghafal-al-quran"
                 stem = f.stem
-                # Buang nomor di depan (01_, 01-, 01 , 02_, dll)
-                clip_raw = re.sub(r'^\d+[\s_\-]+', '', stem)
+                # Buang SEMUA nomor di depan (01_, 01-, 02a_, bahkan bertingkat 02_02a_)
+                clip_raw = stem
+                prev = None
+                while prev != clip_raw:
+                    prev = clip_raw
+                    clip_raw = re.sub(r'^\d+[a-z]?[\s_\-]+', '', clip_raw, flags=re.IGNORECASE)
                 # Ubah kebab-case → Title Case
                 clip_title = " ".join(w.capitalize() for w in clip_raw.replace("-", " ").replace("_", " ").split())
                 

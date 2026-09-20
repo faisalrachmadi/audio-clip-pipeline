@@ -1,8 +1,11 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.30.0
+version: 1.31.0
 # Changelog lengkap: references/changelog.md
+# 1.31.0 - GUARD REPARASI (opsi b): boundary diperbaiki, bukan dibuang. Overlap digeser, clip pendek
+#          dipanjangkan/digabung, clip kepanjangan dipecah ke batas kalimat transcript. Nama pecahan diberi
+#          sufiks bagian-N + strip prefix bertingkat (02_02a_). Hasil uji: 3 clip -> 5 clip.
 # 1.30.0 - KONSEP durasi: durasi MENGIKUTI KONTEKS (panjang topik), bukan target. Rentang --min/--max = lazim,
 #          bukan pagar keras. Batas keras HARD_MIN/HARD_MAX (default 2.5-10 mnt) untuk buang yang ekstrem saja.
 #          Guard overlap beri toleransi 1s (boundary bersinggungan bukan overlap). Hapus aturan "WAJIB BERAGAM".
@@ -65,6 +68,8 @@ python pipeline.py <URL> --min 4 --max 6 --clips 5
 > **⚠️ Catatan server Linux ini (2026-09-14, diperbarui 2026-09-19):** Pipeline yang terpasang di `/home/faisal/.openclaw/workspace/insert-radio/` adalah **varian AUDIO/MP3 (kajian)** — download `yt-dlp -x` → MP3, output `.mp3`, tanpa flag `--audio`, default `--min 4 --max 6`. Varian MP4/talkshow yang dijelaskan di bagian "Default" di atas TIDAK ada di server ini (hanya di mesin Windows).
 >
 > **Perubahan v1.26.0 (rekonsiliasi dari branch `main`):** `--clips` default **5 (fixed, bukan auto)**; prompt wajib **KONTEKS UTUH** (topik dari awal sampai tuntas, cari sub-topik kalau > max, **TES AKHIR** per clip, prioritas: keutuhan konteks > jumlah clip > durasi); `bersihkan_gelar()` otomatis hapus gelar akademik dari nama ustadz.
+>
+> **Perubahan v1.31.0 (guard reparasi):** Tahap 3 tidak lagi sekadar membuang clip bermasalah, tapi **memperbaiki**: overlap → start digeser ke akhir clip sebelumnya (snap batas kalimat); terlalu pendek → dipanjangkan atau digabung ke clip sebelumnya; terlalu panjang → **dipecah** jadi beberapa bagian di batas kalimat transcript (nama diberi sufiks `-bagian-N`).
 >
 > **Perubahan v1.30.0 (durasi mengikuti konteks):** `--min/--max` = panjang **lazim**, bukan pagar keras. Durasi tiap clip = jarak dari topik DIBUKA sampai TUNTAS; boleh keluar dari 4–6 menit kalau topiknya memang begitu. Yang dibuang hanya durasi **ekstrem**: `HARD_MIN_SEC`/`HARD_MAX_SEC` (env `HARD_MIN_MINUTES=2.5`, `HARD_MAX_MINUTES=10`). Guard overlap bertoleransi 1 detik (boundary bersinggungan ≠ overlap).
 
@@ -153,7 +158,7 @@ Gunakan ini untuk melaporkan progres (progress card + pesan singkat) tiap run. T
 
 ### T3 — Potong Audio
 - [ ] Parse `.bat` → daftar perintah ffmpeg
-- [ ] Guard: sort per waktu + buang clip durasi ekstrem & yang overlap nyata
+- [ ] Guard REPARASI: snap boundary ke kalimat, geser overlap, panjangkan/gabung yang pendek, pecah yang panjang
 - [ ] Eksekusi paralel (ThreadPoolExecutor)
 - [ ] Verifikasi semua file ada & playable (`ffprobe`)
 

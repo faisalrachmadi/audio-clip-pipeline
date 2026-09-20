@@ -1,6 +1,13 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.31.0 - GUARD REPARASI (opsi b): guard berhenti sekadar membuang; kini MEMPERBAIKI boundary.
+#          (a) overlap -> start digeser ke akhir clip sebelumnya, di-snap ke batas kalimat transcript;
+#          (b) terlalu pendek -> dipanjangkan sampai kalimat berikutnya, atau digabung ke clip sebelumnya;
+#          (c) terlalu panjang -> dipecah jadi 2-4 bagian di batas kalimat (sub-topik utuh), nama sufiks
+#              '-bagian-N' supaya tidak duplikat; strip prefix bertingkat (02_02a_) juga diperbaiki.
+#          Prompt Tahap 2 + pesan perbaikan kini menyebut aksi per clip (pecah/gabung/geser), bukan sekadar
+#          melaporkan pelanggaran. Bukti: run FnQtx7MnV9M 3 clip -> 5 clip (212/294/321/348/423s).
 # 1.30.0 - KONSEP durasi diperbaiki: durasi MENGIKUTI KONTEKS, bukan target. Rentang --min/--max kini LUNAK
 #          (panjang lazim); batas keras HARD_MIN_SEC/HARD_MAX_SEC (env HARD_MIN_MINUTES=2.5, HARD_MAX_MINUTES=10)
 #          hanya membuang durasi ekstrem. Aturan "WAJIB BERAGAM" dihapus (itu gejala, bukan tujuan).
