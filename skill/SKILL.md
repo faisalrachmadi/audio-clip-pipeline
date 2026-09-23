@@ -1,8 +1,10 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go (deepseek-v4.1-flash), potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.23.0
+version: 1.24.0
 # CHANGES:
+# 1.24.0 - Protokol "Transcript Kosong" ditambah: uji kontrol (verifikasi alat), cek umur
+#          video (upload <2 hari biasanya belum ada caption), cross-check tool kedua
 # 1.23.0 - FIX BESAR: regex di (B) pakai escape ganda (`\\u2013` di r-string) sehingga jadi
 #          deretan karakter literal termasuk huruf "u" -> nama ustadz jadi sampah
 #          (contoh nyata: 'pkan Sunnah-Sunnah Yang Terlupakan: Beberapa Dzikir').
@@ -373,9 +375,9 @@ Isi repo: `pipeline.py`, `requirements.txt`, `.env.example`, `README.md`, dan fo
 - **YouTube Live / video tanpa caption:** Apify return `{"data": []}` -> pipeline gagal di "Transcript kosong". **STOP — jangan fallback ke faster-whisper atau transkripsi alternatif.** User tidak ingin transcripsi manual. Ikuti protokol diagnostik berikut:
 
   **Protokol "Transcript Kosong" (wajib):**
-  1. **Konfirmasi** dengan `yt-dlp --list-subs <URL>` — output akan menampilkan salah satu/both:
-     - `"has no automatic captions"`
-     - `"has no subtitles"`
+  1b. **UJI KONTROL — wajib sebelum lapor ke user:** cek juga 2-3 video yang SUDAH pernah berhasil diproses. Kalau video lama terbaca "ADA caption" dan video baru "TIDAK ada", berarti alatnya benar. (`yt-dlp` suka memunculkan warning `No supported JavaScript runtime could be found` — jangan langsung anggap hasilnya salah, buktikan dengan uji kontrol.) Kalau SEMUA terbaca "tidak ada" termasuk yang lama, cek-nya tidak bisa dipercaya — jangan lapor, investigasi dulu.
+  1c. **Cek umur video:** `yt-dlp --skip-download --print "%(upload_date)s"` — kalau upload < 2 hari, kemungkinan caption otomatis belum dibuat YouTube. Cek juga video LAMA di channel yang sama: kalau sebagian besar punya caption, caption biasanya muncul belakangan → retry nanti masih masuk akal (tapi tetap tanya user, jangan jadwalkan sendiri).
+  1d. **Cross-check tool kedua:** `youtube_transcript_api` (`api.fetch(id, languages=['id'])`) — pesan `"Subtitles are disabled for this video"` = konfirmasi independen selain Apify/yt-dlp.
   2. **Laporkan ke user** dengan pesan standar:
      > 🎬 **Judul:** `{judul}`
      > ❌ **Pipeline dihentikan** — video tidak memiliki teks takarir (automatic captions/subtitles) sama sekali.
