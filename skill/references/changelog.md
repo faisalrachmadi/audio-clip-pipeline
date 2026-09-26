@@ -1,6 +1,12 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.32.0 - FALLBACK transcript (yt-dlp auto-caption): actor Apify 'pintostudio~youtube-transcript-scraper'
+#          sempat RUSAK total 2026-09-26 ('responseMessage is not defined' + 'Schema validation failed'
+#          di pushItems) -- video lama yang dulu sukses pun gagal. Pipeline kini otomatis jatuh ke
+#          fetch_transcript_ytdlp() yang ambil auto-caption id/id-orig via yt-dlp & parse ke format Apify.
+#          Syarat: video punya auto-caption (cek: yt-dlp --list-subs). Terbukti: 855 segmen ~2s, gratis.
+#          Plus: gelar album M.H./S.H./MARS./Sp. KKLP./M.Kes. ditambahkan ke pembersih tag album.
 # 1.31.0 - GUARD REPARASI (opsi b): guard berhenti sekadar membuang; kini MEMPERBAIKI boundary.
 #          (a) overlap -> start digeser ke akhir clip sebelumnya, di-snap ke batas kalimat transcript;
 #          (b) terlalu pendek -> dipanjangkan sampai kalimat berikutnya, atau digabung ke clip sebelumnya;

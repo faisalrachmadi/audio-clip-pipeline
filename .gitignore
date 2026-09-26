@@ -1,5 +1,11 @@
 # Environment
 .env
+.env.*
+!.env.example
+*.env
+**/.env
+**/.env.*
+!**/.env.example
 **/venv/
 **/__pycache__/
 *.pyc

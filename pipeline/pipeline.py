@@ -193,6 +193,55 @@ def fetch_transcript(url, token):
     return resp.json()
 
 
+def fetch_transcript_ytdlp(url, apify_dir):
+    """Cadangan transcript: ambil auto-caption via yt-dlp (gratis, tanpa Apify).
+
+    Dipakai kalau actor Apify gagal (mis. 'responseMessage is not defined').
+    Output disamakan dengan format Apify: [{"data": [{"start","dur","text"}]}].
+    """
+    out_tmpl = str(apify_dir / "_sub")
+    try:
+        run_subprocess(
+            [YT_DLP, "--js-runtimes", "node", "--skip-download",
+             "--write-auto-subs", "--sub-langs", "id,id-orig",
+             "--sub-format", "json3", "-o", out_tmpl, url],
+            desc="transcript via yt-dlp (cadangan)", timeout=300,
+        )
+    except Exception as e:
+        log(f"  ⚠️  yt-dlp subs gagal: {str(e)[:120]}")
+        return None
+
+    files = sorted(apify_dir.glob("_sub*.json3"))
+    if not files:
+        return None
+    # Prioritaskan takarir 'id' (bukan 'id-orig') kalau keduanya ada
+    files.sort(key=lambda p: ("orig" in p.name, len(p.name)))
+    segs = []
+    try:
+        with open(files[0], "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for ev in data.get("events", []):
+            if "segs" not in ev:
+                continue
+            text = "".join(s.get("utf8", "") for s in ev["segs"]).strip()
+            if not text:
+                continue
+            t0 = float(ev.get("tStartMs", 0)) / 1000.0
+            dur = float(ev.get("dDurationMs", 0)) / 1000.0
+            segs.append({"start": f"{t0:.3f}", "dur": f"{dur:.3f}", "text": text})
+    except Exception as e:
+        log(f"  ⚠️  Parse json3 gagal: {str(e)[:120]}")
+        return None
+    finally:
+        for p in files:
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+    return [{"data": segs}] if segs else None
+
+
 def validate_transcript(transcript_data, transcript_path):
     """Simpan & validasi transcript. Return jumlah segmen."""
     with open(transcript_path, "w", encoding="utf-8") as f:
@@ -248,7 +297,15 @@ def tahap1(url, output_dir, video_title):
     else:
         # ── Sequential: transcript dulu, baru audio (jika transcript ada) ──
         log("  📝 Cek transcript...")
-        transcript_data = fetch_transcript(url, APIFY_TOKEN)
+        try:
+            transcript_data = fetch_transcript(url, APIFY_TOKEN)
+        except Exception as e:
+            log(f"  ⚠️  Apify gagal: {str(e)[:120]}")
+            log("  🔄 Coba jalur cadangan: yt-dlp auto-caption...")
+            transcript_data = fetch_transcript_ytdlp(url, apify_dir)
+            if not transcript_data:
+                raise
+            log("  ✅ Transcript dari yt-dlp (cadangan, tanpa Apify)")
         seg_count = validate_transcript(transcript_data, transcript_path)
         log(f"  ✅ Transcript tersimpan ({seg_count} segmen)")
 
@@ -936,9 +993,9 @@ def main():
                 meta_album = album_clean.strip()
             else:
                 meta_album = title_detect.strip()
-            # Bersihkan sisa gelar akademik (mis. "M.Sc.") yang tertinggal setelah nama ustadz dihapus
+            # Bersihkan sisa gelar akademik (mis. "M.Sc.", "M.H.", "S.H.") yang tertinggal setelah nama ustadz dihapus
             meta_album = re.sub(
-                r'(?<![\w.])(?:M\.?\s*Sc\.?|M\.?\s*A\.?|M\.?\s*Ag\.?|M\.?\s*Pd\.?|M\.?\s*Hum\.?|M\.?\s*E\.?|Lc\.?|Ph\.?\s*D\.?|S\.?\s*Ag\.?|S\.?\s*Pd\.?|S\.?\s*Kom\.?|S\.?\s*T\.?|S\.?\s*S\.?)(?=\s|$|[-–—|,;])',
+                r'(?<![\w.])(?:M\.?\s*H\.?|M\.?\s*Sc\.?|M\.?\s*A\.?|M\.?\s*Ag\.?|M\.?\s*Pd\.?|M\.?\s*Hum\.?|M\.?\s*E\.?|M\.?\s*Kes\.?|Lc\.?|Ph\.?\s*D\.?|S\.?\s*H\.?|S\.?\s*Ag\.?|S\.?\s*Pd\.?|S\.?\s*Kom\.?|S\.?\s*T\.?|S\.?\s*S\.?|Sp\.?\s*KKLP\.?|MARS\.?)(?=\s|$|[-–—|,;])',
                 '', meta_album, flags=re.IGNORECASE
             )
             # Rapikan separator ganda jadi satu, lalu spasi berlebih + buang separator menggantung
