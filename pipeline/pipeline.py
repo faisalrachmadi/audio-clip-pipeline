@@ -965,13 +965,13 @@ def main():
                 # Ambil maksimal 6 kata biar muat nama panjang
                 name_parts = raw_name.split()[:6]
                 ustadz_full = " ".join(name_parts).strip().rstrip("., ")
-                # Pastikan diawali "Ustadz" — ganti "Ust." jadi "Ustadz"
-                ustadz_full = re.sub(r'^Ust\.\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
-                # Hapus singkatan gelar di depan (Dr., H., Hj., Prof., KH.) — WAJIB diikuti spasi,
+                # Normalisasi honorifik: "Ustad"/"Ustadz"/"Ustaz"/"Ust." -> "Ustadz".
+                # Judul sering menulis "Ustad" tanpa 'z'; regex lama hanya kenal "Ustadz"/"Ust."
+                # sehingga gelar di belakangnya tidak ikut dibersihkan.
+                ustadz_full = re.sub(r'^Ust(?:adz|ad|az)?\.?\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
+                # Hapus gelar di depan setelah honorifik (Dr./dr., H., Hj., Prof., KH.) — WAJIB diikuti spasi,
                 # biar "Hudzaifah"/"Khalid" tidak kepotong jadi "udzaifah"/"alid"
                 ustadz_full = re.sub(r'^Ustadz\s+(?:(?:Dr|H|Hj|Prof|KH)\.?\s+)+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE).strip()
-                # Ganti "Ust" (dengan/tanpa titik) jadi "Ustadz"
-                ustadz_full = re.sub(r'^Ust\.?\s+', 'Ustadz ', ustadz_full, flags=re.IGNORECASE)
                 if not re.match(r'Ustadz?\.?\s', ustadz_full, re.IGNORECASE):
                     ustadz_full = f"Ustadz {ustadz_full}"
                 ustadz_full = bersihkan_gelar(ustadz_full)
@@ -997,6 +997,11 @@ def main():
             meta_album = re.sub(
                 r'(?<![\w.])(?:M\.?\s*H\.?|M\.?\s*Sc\.?|M\.?\s*A\.?|M\.?\s*Ag\.?|M\.?\s*Pd\.?|M\.?\s*Hum\.?|M\.?\s*E\.?|M\.?\s*Kes\.?|Lc\.?|Ph\.?\s*D\.?|S\.?\s*H\.?|S\.?\s*Ag\.?|S\.?\s*Pd\.?|S\.?\s*Kom\.?|S\.?\s*T\.?|S\.?\s*S\.?|Sp\.?\s*KKLP\.?|MARS\.?)(?=\s|$|[-–—|,;])',
                 '', meta_album, flags=re.IGNORECASE
+            )
+            # Buang kata penyambung menggantung di akhir (sisa pemotongan nama ustadz)
+            meta_album = re.sub(
+                r'\s+(?:bersama|bersamanya|oleh|dari|dan|with|feat\.?|ft\.?)\s*$', '',
+                meta_album, flags=re.IGNORECASE
             )
             # Rapikan separator ganda jadi satu, lalu spasi berlebih + buang separator menggantung
             meta_album = re.sub(r'\s*[|–—]\s*[|–—]\s*', ' | ', meta_album)

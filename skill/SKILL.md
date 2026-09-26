@@ -1,8 +1,9 @@
 ---
 name: insert-radio
 description: "Pipeline otomatis YouTube -> transcript -> analisis AI -> potong clip audio/video untuk insert radio. 3 tahap: cek transcript, analisis via OpenCode Go deepseek-v4.1-flash, potong FFmpeg parallel. Flag --audio untuk output MP3 (audio-only). Jumlah clip otomatis menyesuaikan durasi & kualitas konten."
-version: 1.32.0
+version: 1.32.1
 # Changelog lengkap: references/changelog.md
+# 1.32.1 - FIX honorifik 'Ustad' (tanpa z) + kata penyambung menggantung di tag album.
 # 1.32.0 - FALLBACK transcript: kalau actor Apify rusak (responseMessage is not defined), ambil auto-caption
 #          via yt-dlp (gratis, format disamakan). Fix gelar album M.H./S.H./MARS/Sp.KKLP/M.Kes.
 # 1.31.0 - GUARD REPARASI (opsi b): boundary diperbaiki, bukan dibuang. Overlap digeser, clip pendek

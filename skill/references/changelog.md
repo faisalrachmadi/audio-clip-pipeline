@@ -1,6 +1,8 @@
 # Changelog insert-radio
 
 # CHANGES:
+# 1.32.1 - FIX honorifik 'Ustad' (tanpa z) tidak dikenali -> gelar tak terhapus; fix kata penyambung
+#          menggantung ('bersama'/'oleh') di tag album. Bukti: run gCjTAhXPDa4.
 # 1.32.0 - FALLBACK transcript (yt-dlp auto-caption): actor Apify 'pintostudio~youtube-transcript-scraper'
 #          sempat RUSAK total 2026-09-26 ('responseMessage is not defined' + 'Schema validation failed'
 #          di pushItems) -- video lama yang dulu sukses pun gagal. Pipeline kini otomatis jatuh ke
