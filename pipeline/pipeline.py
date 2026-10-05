@@ -132,7 +132,7 @@ def download_audio(url, audio_path):
     for attempt in range(2):
         try:
             run_subprocess(
-                [YT_DLP, "-x", "--audio-format", "mp3", "--audio-quality", "0",
+                [YT_DLP, "--js-runtimes", "node", "-x", "--audio-format", "mp3", "--audio-quality", "0",
                  "-o", str(audio_path), url],
                 desc=f"download audio (percobaan {attempt+1})",
                 timeout=600,
@@ -638,7 +638,7 @@ def main():
 
     log("Mendapatkan judul video...")
     title = run_subprocess(
-        [YT_DLP, "--get-title", args.url],
+        [YT_DLP, "--js-runtimes", "node", "--get-title", args.url],
         desc="ambil judul"
     ).strip()
     folder_name = f"{datetime.now().strftime('%Y-%m-%d')}_{sanitize(title)}"
@@ -728,6 +728,11 @@ def main():
                 meta_album = album_clean.strip()
             else:
                 meta_album = title.strip()
+
+            # Bersihkan album: buang prefix LIVE dan nomor #1.
+            meta_album = re.sub(r'(?i)\blive\b', '', meta_album)
+            meta_album = re.sub(r'#\s*\d+[.)]*\s*', '', meta_album)
+            meta_album = re.sub(r'\s{2,}', ' ', meta_album).strip(' -|,;:.')
 
             for f in clip_files:
                 # Ekstrak judul clip dari nama file asli: "01_metode-menghafal-al-quran"
